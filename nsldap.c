@@ -72,7 +72,7 @@ typedef struct Pool {
     time_t         maxidle;
     time_t         maxopen;
     int            stale_on_close;
-    int            fVerbose;
+    bool           fVerbose;
 } Pool;
 
 typedef struct Handle {
@@ -369,7 +369,7 @@ LDAPCreatePool(const char *pool, const char *path)
     poolPtr->stale_on_close = 0;
     if (Ns_ConfigGetBool(path, CONFIG_VERBOSE,
 			 &poolPtr->fVerbose) == NS_FALSE) {
-        poolPtr->fVerbose = 0;
+        poolPtr->fVerbose = NS_FALSE;
     } 
     if (Ns_ConfigGetInt(path, CONFIG_CONNS, &poolPtr->nhandles) == NS_FALSE ||
 	poolPtr->nhandles <= 0) {
