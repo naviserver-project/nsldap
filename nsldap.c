@@ -128,8 +128,7 @@ LDAPCheckPool(Pool *poolPtr);
 static void 
 LDAPCheckPools(void *ctx);
 
-static int 
-LDAPCmd(ClientData context, Tcl_Interp *interp, int argc, const char **argv);
+static Tcl_CmdProc LDAPCmd;
 
 static int 
 LDAPConnect(Handle *handlePtr);
@@ -1461,7 +1460,7 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
             Tcl_DStringInit(&ds);
 	    for (i = 0; i < nhandles; ++i) {
                 LDAPEnterHandle(interp, handlesPtrPtr[i], context);
-                Tcl_DStringAppendElement(&ds, interp->result);
+                Tcl_DStringAppendElement(&ds, Tcl_GetStringResult(interp));
             }
             Tcl_DStringResult(interp, &ds);
 	}
@@ -1522,7 +1521,7 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
 		Tcl_DeleteHashEntry(hPtr);
 		LDAPPoolPutHandle(handlePtr);
 	    } else if (STREQ(cmd, "connected")) {
-		sprintf(interp->result, "%d", handlePtr->connected);
+		sprintf(Tcl_GetStringResult(interp), "%d", handlePtr->connected);
 	    }
 	 
 	} else if (STREQ(cmd, "add")) {
@@ -1558,7 +1557,7 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
 		    int j;
 
 		    Tcl_AppendResult(interp, "nsldap [", argv[1], "]: ",
-				     interp->result, NULL);
+				     Tcl_GetStringResult(interp), NULL);
 		    for(j = 0; j < i; j++) {
 			Tcl_Free( (char *)moda[j]->mod_values);
 		    }
@@ -1726,7 +1725,7 @@ mod_err:
 		    mod[count].mod_type = (char *)attr;
 		    if (Tcl_SplitList(interp, val, &vlen, (const char ***)&mod[count].mod_values) != TCL_OK) {
 			Tcl_AppendResult(interp, "nsldap [", argv[1], "]: ",
-					 interp->result, NULL);
+					 Tcl_GetStringResult(interp), NULL);
 			for (i = 0; moda[i]; i++) {
 			    if (moda[i]->mod_values != NULL)
 				Tcl_Free( (char *)moda[i]->mod_values);
