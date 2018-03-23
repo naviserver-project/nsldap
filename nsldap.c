@@ -279,7 +279,7 @@ Ns_ModuleInit(const char *hServer, const char *hModule)
     }
 
     /*
-     * Construct the allowedPools list and initalize the nsldap Tcl
+     * Construct the allowedPools list and initialize the nsldap Tcl
      * commands if any pools were actually created
      */
     
