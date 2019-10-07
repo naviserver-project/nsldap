@@ -41,7 +41,7 @@
 #define NSLDAP_VERSION  "0.9"
 
 #define CONFIG_USER     "user"  	/* LDAP default bind DN */
-#define CONFIG_PASS     "password"      /* DN passowrd */
+#define CONFIG_PASS     "password"      /* DN password */
 #define CONFIG_HOST     "host"          /* LDAP server */
 #define CONFIG_CONNS    "connections"   /* Number of LDAP connections. */
 #define CONFIG_VERBOSE  "verbose"       /* Log LDAP queries and errors */
