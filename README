@@ -12,6 +12,11 @@ code.
 The actual LDAP API is modelled after sensus consulting's ldap
 extensions for Tcl. It is described later in this document.
 
+The compilation requires the ldap, sasl and OpenSSL libraries.
+On a debian system, you might have to install these with the
+following command
+  apt-get install libsasl2-dev libldap2-dev libssl-dev
+
 Version: 0.9
 
 
@@ -20,7 +25,7 @@ A NOTE ABOUT ORACLE
 
 Oracle 8i provides an ldap implementation within the client
 libraries which is not entirely compatible with OpenLDAP 
-semantics. If you're running an NaviServer that uses the ora8.so
+semantics. If you're running a NaviServer that uses the ora8.so
 module (provided by ArsDigita) and you run into trouble with
 nsldap.so (coredumping the nsd program in an ns_ldap add operation
 for example) you should apply the following workaround courtesy
@@ -37,7 +42,7 @@ collides with OpenLDAP's API provided with libldap and liblber
 (which are linked with nsldap.so) the dynamic linker uses the Oracle
 provided functions which are not fully compatible with nsldap.
 
-As a workaround you can link the nsd (nsd8x or nsd7) binary directly
+As a workaround you can link the nsd binary directly
 with OpenLDAP libraries to force the dynamic linker to resolve the
 symbols using libldap and liblber. To do this, simply modify the
 Makefile.global (in naviserver's include subdirectory) and change
@@ -50,6 +55,7 @@ with
    LIBS+=-lsocket -lnsl -ldl -lposix4 -lthread -lresolv -lldap -llber -R $(RPATH)
 
 where appropriate for your Operating System.
+
 
 Configuring the nsldap Module in NaviServer's config.tcl file
 ------------------------------------------------------------
