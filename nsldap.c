@@ -38,7 +38,7 @@
 #include <lber.h>
 #include <ldap.h>
 
-#define NSLDAP_VERSION  "0.9"
+#define NSLDAP_VERSION  "1.0d1"
 
 #define CONFIG_USER     "user"          /* LDAP default bind DN */
 #define CONFIG_PASS     "password"      /* DN password */
@@ -617,6 +617,19 @@ LDAPConnect(Handle *handlePtr)
         handlePtr->stale = NS_FALSE;
         return NS_ERROR;
     }
+#ifdef LDAPV3
+    {
+        int version = LDAP_VERSION3;
+        if (ldap_set_option(handlePtr->ldaph, LDAP_OPT_PROTOCOL_VERSION, &version) != LDAP_SUCCESS) {
+            Ns_Log(Error, "nsldap: could not set protocol version to LDAPV3");
+            handlePtr->connected = NS_FALSE;
+            handlePtr->atime = handlePtr->otime = 0;
+            handlePtr->stale = NS_FALSE;
+            return NS_ERROR;
+        }
+    }
+#endif
+
     cred.bv_val = (char *)handlePtr->password;
     cred.bv_len = strlen(handlePtr->password);
     err = ldap_sasl_bind_s(handlePtr->ldaph, handlePtr->user, LDAP_SASL_SIMPLE, &cred,
@@ -1797,6 +1810,52 @@ mod_err:
 
             return TCL_OK;
 
+        } else if (STREQ(cmd, "bind")) {
+            /*
+             * nsldap bind $lh username password
+             */
+            const char   *dn, *pass;
+            struct berval berpass;
+            struct berval bercred;
+            int    err;
+
+            if (argc < 3) {
+                return BadArgs(interp, argv, "ldapId <dn:user> password ");
+            }
+
+            dn = argv[3];
+            pass = argv[4];
+
+            berpass.bv_val = (char *)pass;
+            berpass.bv_len = strlen(pass);
+            bercred.bv_val = (char *)handlePtr->password;
+            bercred.bv_len = strlen(handlePtr->password);
+
+            err = ldap_sasl_bind_s(handlePtr->ldaph, dn, LDAP_SASL_SIMPLE, &berpass,
+                    NULL, NULL,
+                    NULL);
+
+            /*
+             * Rebind with original authentication credentials.
+             */
+            ldap_sasl_bind_s(handlePtr->ldaph, handlePtr->user, LDAP_SASL_SIMPLE, &bercred,
+                    NULL, NULL,
+                    NULL);
+
+            if (err != LDAP_SUCCESS) {
+                Ns_Log(Error, "nsldap: could not bind for %s : %s",
+                       dn, ldap_err2string(err));
+                Tcl_SetObjResult(interp, Tcl_NewIntObj(0));
+                return TCL_ERROR;
+
+            } else {
+                Tcl_SetObjResult(interp, Tcl_NewIntObj(1));
+                return TCL_OK;
+            }
+            return TCL_OK;
+
+
+
         } else if (STREQ(cmd, "search")) {
             /*
              * ns_ldap search $lh
@@ -1931,6 +1990,7 @@ mod_err:
         } else {
             Tcl_AppendResult(interp, argv[0], ": Unknown command\"",
                              argv[1], "\": should be "
+                             "bind, "
                              "bouncepool, "
                              "connected, "
                              "disconnect, "

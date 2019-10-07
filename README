@@ -9,21 +9,21 @@ that you define "pools" in your config file for NaviServer and then
 get "handles" to the connections allowed in those pools from your
 code.
 
-The actual LDAP API is modelled after sensus consulting's ldap
+The actual LDAP API is modelled after sensus consulting's LDAP
 extensions for Tcl. It is described later in this document.
 
-The compilation requires the ldap, sasl and OpenSSL libraries.
+The compilation requires the LDAP, sasl and OpenSSL libraries.
 On a debian system, you might have to install these with the
 following command
   apt-get install libsasl2-dev libldap2-dev libssl-dev
 
-Version: 0.9
+Version: 1.0d1
 
 
 A NOTE ABOUT ORACLE
 -------------------
 
-Oracle 8i provides an ldap implementation within the client
+Oracle 8i provides an LDAP implementation within the client
 libraries which is not entirely compatible with OpenLDAP 
 semantics. If you're running a NaviServer that uses the ora8.so
 module (provided by ArsDigita) and you run into trouble with
@@ -71,7 +71,7 @@ You should add the following lines:
    ns_param   nsldap          ${bindir}/nsldap.so
 
    # 
-   # ldap pool ldap
+   # nsldap pool ldap
    #
 
    ns_section "ns/ldap/pool/ldap"
@@ -82,13 +82,13 @@ You should add the following lines:
    ns_param verbose On
 
    # 
-   # ldap pools
+   # nsldap pools
    #
    ns_section "ns/ldap/pools"
    ns_param ldap ldap
 
    #
-   # ldap default pool
+   # nsldap default pool
    #
    ns_section "ns/server/${servername}/ldap"
    ns_param Pools *
@@ -162,7 +162,7 @@ ns_ldap compare $ldaph dn attr value
 
 ns_ldap delete $ldaph dn
 
-  - removes the object referenced by dn from the ldap tree. Most
+  - removes the object referenced by dn from the LDAP tree. Most
   directories will not allow you to delete an object that has
   children.
 
@@ -178,6 +178,15 @@ ns_ldap modify $ldaph ?add: fld valList ...? ?mod: fld valList ...? ?del: fld va
 ns_ldap modrdn $ldaph dn rdn ?deloldrdn?
 
   - renames an object (changes the rdn).
+
+ns_ldap bind $ldaph username password
+
+  - This command is meant to be used for credentials check only.
+  - Issues an LDAP bind with the username and password, returns 1 (true) if
+    the username/password combination
+    is valid for authentication, 0 otherwise.
+  - Issues a second bind with the original credentials right afterwards to
+    prevent working on LDAP as the user authenticated with the application
 
 ns_ldap search $ldaph ?-scope [base onelevel subtree]? ?-attrs bool? ?-names bool? base ?filter?
 
