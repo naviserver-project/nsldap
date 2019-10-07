@@ -39,8 +39,8 @@ MODLIBS  =  -L/usr/local/lib -lldap -llber
 #
 # Compiler flags required by your module (-I for external headers goes here)
 #
-CFLAGS   =  -I/usr/local/include -DUSE_TCL8X
-
+# On macOS, you might use
+#CFLAGS += -Wno-deprecated-declarations
 
 include  $(NAVISERVER)/include/Makefile.module
 

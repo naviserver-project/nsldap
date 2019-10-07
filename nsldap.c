@@ -49,9 +49,8 @@
 /*
  * The Ns_ModuleVersion variable is required.
  */
-
-int Ns_ModuleVersion = 1;
-
+NS_EXTERN const int Ns_ModuleVersion;
+NS_EXPORT const int Ns_ModuleVersion = 1;
 
 struct Handle;
 
@@ -114,7 +113,7 @@ static struct timeval timeout = {
  */
 
 static int 
-BadArgs(Tcl_Interp *interp, const char **argv, char *args);
+BadArgs(Tcl_Interp *interp, const char **argv, const char *args);
 
 static void 
 LDAPEnterHandle(Tcl_Interp *interp, Handle *handle, Context *context);
@@ -125,9 +124,7 @@ LDAPBouncePool(const char *pool, Context *context);
 static void 
 LDAPCheckPool(Pool *poolPtr);
 
-static void 
-LDAPCheckPools(void *ctx);
-
+static Ns_SchedProc LDAPCheckPools;
 static Tcl_CmdProc LDAPCmd;
 
 static int 
@@ -193,7 +190,7 @@ static Ns_TraceProc ReleaseLDAP;
  */
  
 NS_EXPORT int
-Ns_ModuleInit(const char *hServer, const char *hModule)
+Ns_ModuleInit(const char *hServer, const char *UNUSED(hModule))
 {
     Tcl_HashEntry  *hPtr;
     Tcl_HashSearch  search;
@@ -202,7 +199,7 @@ Ns_ModuleInit(const char *hServer, const char *hModule)
     Ns_DString      ds;
     const char     *pool, *path, *allowed;
     register char  *p;
-    int             new, i, tcheck;
+    int             new, tcheck;
     Context        *context;
 
     /* Get Memory for the new Context */
@@ -224,6 +221,8 @@ Ns_ModuleInit(const char *hServer, const char *hModule)
     pools = Ns_ConfigGetSection("ns/ldap/pools");
     if (pools != NULL && allowed != NULL) {
 	if (STREQ(allowed, "*")) {
+            size_t i;
+
 	    for (i = 0; i < Ns_SetSize(pools); ++i) {
 		pool = Ns_SetKey(pools, i);
 		Ns_Log(Debug, "nsldap: allowing * -> pool %s", pool);
@@ -285,7 +284,7 @@ Ns_ModuleInit(const char *hServer, const char *hModule)
     
     if (context->poolsTable.numEntries == 0) {
 	Ns_Log(Debug, "nsldap: no configured pools");
-	context->allowedPools = "";
+	context->allowedPools = (char*)"";
     } else {
 	tcheck = INT_MAX;
 	Ns_DStringInit(&ds);
@@ -293,13 +292,13 @@ Ns_ModuleInit(const char *hServer, const char *hModule)
 	while (hPtr != NULL) {
 	    poolPtr = Tcl_GetHashValue(hPtr);
 	    if (tcheck > poolPtr->maxidle) {
-		tcheck = poolPtr->maxidle;
+		tcheck = (int)poolPtr->maxidle;
 	    }
 	    Ns_Log(Debug, "nsldap: adding pool %s to the list of allowed pools", poolPtr->name);
-	    Ns_DStringNAppend(&ds, poolPtr->name, strlen(poolPtr->name) + 1);
+	    Ns_DStringNAppend(&ds, poolPtr->name, (int)(strlen(poolPtr->name) + 1));
 	    hPtr = Tcl_NextHashEntry(&search);
 	}
-	context->allowedPools = ns_malloc(ds.length + 1);
+	context->allowedPools = ns_malloc((size_t)(ds.length + 1));
 	memcpy(context->allowedPools, ds.string, ds.length + 1);
 	Ns_DStringFree(&ds);
 	Ns_TclRegisterTrace(hServer, LDAPInterpInit, context, NS_TCL_TRACE_CREATE);
@@ -472,7 +471,7 @@ LDAPReturnHandle(Handle *handlePtr)
  */
 
 static void
-LDAPCheckPools(void *ctx)
+LDAPCheckPools(void *ctx, int UNUSED(id))
 {
     Tcl_HashEntry *hPtr;
     Tcl_HashSearch search;
@@ -704,7 +703,7 @@ LDAPPoolTimedGetMultipleHandles(Handle **handles, const char *pool,
     Handle    *handlePtr;
     Handle   **handlesPtrPtr = handles;
     Pool      *poolPtr;
-    Ns_Time    timeout, *timePtr;
+    Ns_Time    timeoutStruct, *timePtr;
     int        i, ngot, status;
 
     /*
@@ -742,9 +741,9 @@ LDAPPoolTimedGetMultipleHandles(Handle **handles, const char *pool,
     if (wait <= 0) {
 	timePtr = NULL;
     } else {
-    	Ns_GetTime(&timeout);
-    	Ns_IncrTime(&timeout, wait, 0);
-	timePtr = &timeout;
+    	Ns_GetTime(&timeoutStruct);
+    	Ns_IncrTime(&timeoutStruct, wait, 0);
+	timePtr = &timeoutStruct;
     }
     status = NS_OK;
     Ns_MutexLock(&poolPtr->lock);
@@ -988,7 +987,7 @@ LDAPFreeCounts(void *arg) {
 int
 LDAPPoolAllowable(Context *context, const char *pool)
 {
-    register char *p;
+    register const char *p;
 
     p = context->allowedPools;
     if (p != NULL) {
@@ -1055,15 +1054,15 @@ LDAPEnterHandle(Tcl_Interp *interp, Handle *handle, Context *context)
  */
 
 static void
-ReleaseLDAP(void *context, Ns_Conn *conn)
+ReleaseLDAP(void *context, Ns_Conn *UNUSED(conn))
 {
-    Context * ctx;
+    Context       *ctx;
     Tcl_HashTable *tablePtr;
     Tcl_HashSearch search;
     Tcl_HashEntry *hPtr;
-    Handle *handle;
-    char *handleName;
-    int  ThisThreadId;
+    Handle        *handle;
+    const char    *handleName;
+    uintptr_t      ThisThreadId;
 
     ctx = (Context *) context;
     tablePtr = &ctx->activeHandles;
@@ -1073,7 +1072,8 @@ ReleaseLDAP(void *context, Ns_Conn *conn)
 	handle = Tcl_GetHashValue(hPtr);
 	if (ThisThreadId == handle->ThreadId) {
 	    handleName = Tcl_GetHashKey(tablePtr, hPtr);
-	    Ns_Log(Notice, "nsldap: returning handle %s to pool %s (you should call releasehandle)", handleName, handle->poolname);
+	    Ns_Log(Notice, "nsldap: returning handle %s to pool %s (you should call releasehandle)",
+                   handleName, handle->poolname);
 	    Tcl_DeleteHashEntry(hPtr);
 	    LDAPPoolPutHandle(handle);
 	}
@@ -1105,7 +1105,8 @@ LDAPPoolPutHandle(Handle *handle)
     Pool	*poolPtr;
     time_t	 now;
 
-    Ns_Log(Debug, "nsldap: returning handle to pool %s for thread %p", handle->poolname, (void*)Ns_ThreadId());
+    Ns_Log(Debug, "nsldap: returning handle to pool %s for thread %p",
+           handle->poolname, (void*)(Ns_ThreadId()));
 
     handlePtr = (Handle *) handle;
     poolPtr = handlePtr->poolPtr;
@@ -1242,7 +1243,7 @@ LDAPInterpInit(Tcl_Interp *interp, const void *context)
  */
 
 static int
-BadArgs(Tcl_Interp *interp, const char **argv, char *args)
+BadArgs(Tcl_Interp *interp, const char **argv, const char *args)
 {
     Tcl_AppendResult(interp, "wrong # args: should be \"",
         argv[0], " ", argv[1], NULL);
@@ -1316,7 +1317,8 @@ Entry2List(Tcl_Interp *interp, LDAP *ld, LDAPMessage *e,
             if ( bvals != NULL ) {
                     for ( i = 0; bvals[i] != NULL; i++ ) {
                         Tcl_ListObjAppendElement(interp, subListPtr,
-                                                 Tcl_NewStringObj( bvals[i]->bv_val, bvals[i]->bv_len));
+                                                 Tcl_NewStringObj( bvals[i]->bv_val,
+                                                                   (int)(bvals[i]->bv_len)));
                     }
                     ldap_value_free_len( bvals );
             }
@@ -1392,13 +1394,13 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
 	    return TCL_ERROR;
 	}
     } else if (STREQ(cmd, "gethandle")) {
-	int timeout, nhandles, result;
+	int timeoutSecs, nhandles, result;
 	Handle **handlesPtrPtr;
 
-	timeout = 0;
+	timeoutSecs = 0;
 	if (argc >= 4) {
 	    if (STREQ(argv[2], "-timeout")) {
-		if (Tcl_GetInt(interp, argv[3], &timeout) != TCL_OK) {
+		if (Tcl_GetInt(interp, argv[3], &timeoutSecs) != TCL_OK) {
 		    return TCL_ERROR;
 		}
 		argv += 2;
@@ -1420,7 +1422,7 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
 	if (pool == NULL) {
 	    pool = context->defaultPool;
 	    if (pool == NULL) {
-		Tcl_SetResult(interp, "no defaultpool configured", TCL_STATIC);
+		Tcl_SetObjResult(interp, Tcl_NewStringObj("no defaultpool configured", -1));
 		return TCL_ERROR;
 	    }
 	}
@@ -1449,10 +1451,10 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
 	if (nhandles == 1) {
     	    handlesPtrPtr = &handlePtr;
 	} else {
-	    handlesPtrPtr = ns_malloc(nhandles * sizeof(Handle *));
+	    handlesPtrPtr = ns_malloc((size_t)nhandles * sizeof(Handle *));
 	}
 	result = LDAPPoolTimedGetMultipleHandles(handlesPtrPtr, pool, 
-    	    	                                  nhandles, timeout, context);
+    	    	                                  nhandles, timeoutSecs, context);
     	if (result == NS_OK) {
 	    Tcl_DString ds;
 	    int i;
@@ -1541,8 +1543,8 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
 
 	    dn = argv[3];
 
-	    mod = (LDAPMod *)ns_malloc( ((argc - 4)/2 + 1)*sizeof(LDAPMod));
-	    moda = (LDAPMod **)ns_malloc( ((argc - 4)/2 + 1)*sizeof(LDAPMod*));
+	    mod = (LDAPMod *)ns_malloc( (size_t)((argc - 4)/2 + 1) * sizeof(LDAPMod));
+	    moda = (LDAPMod **)ns_malloc( (size_t)((argc - 4)/2 + 1) * sizeof(LDAPMod*));
 
 	    for (i = 0; i < (argc - 4)/2; i++) {
 		const char *attr, *val;
@@ -1605,10 +1607,10 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
 
 	    lrc = ldap_compare_ext_s(handlePtr->ldaph, dn, attr, &bvalue, NULL, NULL);
 	    if (lrc == LDAP_COMPARE_TRUE) {
-		Tcl_SetResult(interp, "1", TCL_STATIC);
+		Tcl_SetObjResult(interp, Tcl_NewIntObj(0));
 		return TCL_OK;
 	    } else if (lrc == LDAP_COMPARE_FALSE) {
-		Tcl_SetResult(interp, "0", TCL_STATIC);
+		Tcl_SetObjResult(interp, Tcl_NewIntObj(0));
 		return TCL_OK;
 	    } else {
 		Tcl_AppendResult(interp, "nsldap [", argv[1], "]: ",
@@ -1690,8 +1692,8 @@ mod_err:
 		return TCL_OK;
 	    }
 
-	    mod = (LDAPMod *)ns_malloc( (count+1)*sizeof(LDAPMod));
-	    moda = (LDAPMod **)ns_malloc( (count+1)*sizeof(LDAPMod*));
+	    mod = (LDAPMod *)ns_malloc( (size_t)(count+1) * sizeof(LDAPMod));
+	    moda = (LDAPMod **)ns_malloc( (size_t)(count+1) * sizeof(LDAPMod*));
 
 	    /*
 	     * Process arguments, and generate the LDAPMod array.
@@ -1864,7 +1866,7 @@ mod_err:
 	    if (idx < argc) {
 		int j;
 
-		attrs = ns_malloc( (argc-idx+1)*sizeof(char *));
+		attrs = ns_malloc( (size_t)(argc-idx+1) * sizeof(char *));
 		for (j = 0; idx < argc; j++) {
 		    attrs[j] = argv[idx++];
 		}
