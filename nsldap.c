@@ -419,7 +419,7 @@ LDAPCreatePool(const char *pool, const char *path)
  * LDAPReturnHandle --
  *
  *	Return a handle to its pool.  Connected handles are pushed on
- *	the front of the list, disconnected handles are appened to
+ *	the front of the list, disconnected handles are appended to
  *	the end.
  *
  * Results:
