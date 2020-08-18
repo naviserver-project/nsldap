@@ -57,6 +57,7 @@ struct Handle;
 typedef struct Pool {
     const char    *name;
     const char    *desc;
+    const char    *schema;
     const char    *host;
     int            port;
     const char    *user;
@@ -75,6 +76,7 @@ typedef struct Pool {
 } Pool;
 
 typedef struct Handle {
+    const char   *schema;
     const char   *host;
     int           port;
     const char   *user;
@@ -304,8 +306,12 @@ Ns_ModuleInit(const char *hServer, const char *UNUSED(hModule))
         Ns_TclRegisterTrace(hServer, LDAPInterpInit, context, NS_TCL_TRACE_CREATE);
 
         if (tcheck > 0) {
+            Ns_Time interval;
+
             Ns_Log(Debug, "nsldap: Registering LDAPCheckPools (%d)", tcheck);
-            Ns_ScheduleProc(LDAPCheckPools, context, 1, tcheck);
+            interval.sec = tcheck;
+            interval.usec = 0;
+            return Ns_ScheduleProcEx(LDAPCheckPools, context, NS_SCHED_THREAD, &interval, NULL);
         }
     }
     /*
@@ -342,7 +348,7 @@ LDAPCreatePool(const char *pool, const char *path)
 {
     Pool            *poolPtr;
     Handle          *handlePtr;
-    int              i;
+    int              i, defaultPort = LDAP_PORT;
     const char      *host;
 
     host = Ns_ConfigGetValue(path, CONFIG_HOST);
@@ -357,8 +363,15 @@ LDAPCreatePool(const char *pool, const char *path)
     Ns_CondInit(&poolPtr->waitCond);
     Ns_CondInit(&poolPtr->getCond);
     poolPtr->host = host;
+
+    poolPtr->schema = Ns_ConfigGetValue(path, "schema");
+    if (poolPtr->schema == NULL) {
+        poolPtr->schema = "ldap";
+    } else if (strcmp(poolPtr->schema, "ldaps") == 0) {
+         defaultPort = LDAPS_PORT;
+    }
     if (Ns_ConfigGetInt(path, "port", &poolPtr->port) == NS_FALSE) {
-        poolPtr->port = LDAP_PORT;
+        poolPtr->port = defaultPort;
     }
     poolPtr->name = pool;
     poolPtr->waiting = 0;
@@ -400,7 +413,7 @@ LDAPCreatePool(const char *pool, const char *path)
          * was designed to allow handles outside of pools, a feature
          * no longer supported.
          */
-
+        handlePtr->schema = poolPtr->schema;
         handlePtr->host = poolPtr->host;
         handlePtr->port = poolPtr->port;
         handlePtr->user = poolPtr->user;
@@ -604,14 +617,14 @@ LDAPConnect(Handle *handlePtr)
     struct berval cred;
 
     Tcl_DStringInit(&ds);
-    Ns_DStringPrintf(&ds, "ldap://%s:%d", handlePtr->host, handlePtr->port );
+    Ns_DStringPrintf(&ds, "%s://%s:%d", handlePtr->schema, handlePtr->host, handlePtr->port );
 
     err = ldap_initialize(&handlePtr->ldaph, ds.string);
     Tcl_DStringFree(&ds);
 
     if (err != LDAP_SUCCESS) {
-        Ns_Log(Error, "nsldap: could not open connection to server %s on port %d: %s",
-               handlePtr->host, handlePtr->port, strerror(errno));
+        Ns_Log(Error, "nsldap: could not open connection to server %s://%s on port %d: %s",
+               handlePtr->schema, handlePtr->host, handlePtr->port, strerror(errno));
         handlePtr->connected = NS_FALSE;
         handlePtr->atime = handlePtr->otime = 0;
         handlePtr->stale = NS_FALSE;

@@ -17,7 +17,7 @@ On a debian system, you might have to install these with the
 following command
   apt-get install libsasl2-dev libldap2-dev libssl-dev
 
-Version: 1.0d1
+Version: 1.0d2
 
 
 A NOTE ABOUT ORACLE
@@ -67,32 +67,35 @@ that this is *after* compiling an installing the nsldap.so module.
 
 You should add the following lines: 
 
-   ns_section "ns/server/${servername}/modules"
-   ns_param   nsldap          ${bindir}/nsldap.so
-
+   ns_section ns/server/${servername}/modules {
+      ns_param   nsldap ${bindir}/nsldap.so
+   }
    # 
    # nsldap pool ldap
    #
 
-   ns_section "ns/ldap/pool/ldap"
-   ns_param user "cn=Manager, o=Universidad Galileo"
-   ns_param password "YourPasswordHere"
-   ns_param host "ldap.galileo.edu"
-   ns_param connections 1
-   ns_param verbose On
-
+   ns_section ns/ldap/pool/ldap {
+      ns_param user "cn=Manager, o=Universidad Galileo"
+      ns_param password "YourPasswordHere"
+      ns_param host "ldap.galileo.edu"
+      ns_param connections 1
+      ns_param verbose On
+      ns_param port 389   ;# ldaps uses: 636
+      ns_param schema ldap
+   }
    # 
    # nsldap pools
    #
-   ns_section "ns/ldap/pools"
-   ns_param ldap ldap
-
+   ns_section ns/ldap/pools {
+      ns_param ldap ldap
+   }
    #
    # nsldap default pool
    #
-   ns_section "ns/server/${servername}/ldap"
-   ns_param Pools *
-   ns_param DefaultPool ldap
+   ns_section ns/server/${servername}/ldap {
+      ns_param Pools *
+      ns_param DefaultPool ldap
+   }
 
 If you look at this carefully you'll see it's almost the same as the
 database pools.
