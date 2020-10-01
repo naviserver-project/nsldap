@@ -49,8 +49,8 @@
 /*
  * The Ns_ModuleVersion variable is required.
  */
-NS_EXTERN const int Ns_ModuleVersion;
-NS_EXPORT const int Ns_ModuleVersion = 1;
+NS_EXPORT int Ns_ModuleVersion = 1;
+NS_EXPORT Ns_ModuleInitProc Ns_ModuleInit;
 
 struct Handle;
 
@@ -167,7 +167,6 @@ LDAPPoolTimedGetMultipleHandles(Handle **handles, const char *pool,
 static void
 LDAPReturnHandle(Handle *handlePtr);
 
-NS_EXPORT Ns_ModuleInitProc Ns_ModuleInit;
 static Ns_TraceProc ReleaseLDAP;
 
 
