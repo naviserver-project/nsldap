@@ -1548,7 +1548,7 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
                 Tcl_DeleteHashEntry(hPtr);
                 LDAPPoolPutHandle(handlePtr);
             } else if (STREQ(cmd, "connected")) {
-                sprintf(Tcl_GetStringResult(interp), "%d", handlePtr->connected);
+                Tcl_SetObjResult(interp, Tcl_NewIntObj(handlePtr->connected));
             }
 
         } else if (STREQ(cmd, "add")) {
@@ -1627,7 +1627,7 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
             attr = argv[4];
             value = argv[5];
 
-            bvalue.bv_val = (char *)argv[5];
+            bvalue.bv_val = (char *)value;
             bvalue.bv_len = strlen(bvalue.bv_val);
 
             lrc = ldap_compare_ext_s(handlePtr->ldaph, dn, attr, &bvalue, NULL, NULL);
