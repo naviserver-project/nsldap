@@ -190,7 +190,7 @@ static Ns_TraceProc ReleaseLDAP;
  *----------------------------------------------------------------------
  */
 
-NS_EXPORT int
+NS_EXPORT Ns_ReturnCode
 Ns_ModuleInit(const char *hServer, const char *UNUSED(hModule))
 {
     Tcl_HashEntry  *hPtr;
@@ -1242,7 +1242,7 @@ LDAPFail(Tcl_Interp *interp, Handle *handle, char *cmd)
  *----------------------------------------------------------------------
  */
 
-static int
+static Ns_ReturnCode
 LDAPInterpInit(Tcl_Interp *interp, const void *context)
 {
 
