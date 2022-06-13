@@ -1,0 +1,174 @@
+commit b65cff74b9e88cb55a05d99f7b05ac09f30a2828
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2021-07-23
+
+    modernize code
+
+M	nsldap.c
+
+commit 1bdfb2b030b880fcb58359311af23e3ae5599b90
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2021-01-10
+
+    fixed result setting of "connected" subcommand
+
+M	nsldap.c
+
+commit 6a1d6e2247d5d134c83cf74c1b68eb563372c25b
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2020-10-01
+
+    make modules more consistent
+
+M	nsldap.c
+
+commit f9a1090f95afa643ae0f2b5cc89beb4865012455
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2020-08-25
+
+    deleted README (use README.md instead)
+
+D	README
+
+commit 0592de2a0a5bca34f7f60c317a545f251228be8f
+Author: Gustaf Neumann <neumann@wu.ac.at>
+Date:   2020-08-25
+
+    README.md edited online with Bitbucket
+
+M	README.md
+
+commit 5336110c7c17364a2a0a277fa40d5d723665bc2d
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2020-08-25
+
+    first draft of converting README file to markdown
+
+A	README.md
+
+commit 00425c9a479904e164d308276762e89dd20675f5
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2020-08-18
+
+    Added config parameter "schema" to allow one to specify not only "ldap"
+    
+    - improved documentation in README file
+    - reduced number of deprecated calls
+
+M	README
+M	nsldap.c
+
+commit 5c13fbce7b129858d02b9de9db3d07c34fe60f6b
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2019-10-07
+
+    whitespace changes: use usual NaviServer indentation rules
+
+M	nsldap.c
+
+commit 3fa5322e577d3a7a5c4b2945767a1f8d1ab035d5
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2019-10-07
+
+    Incorporate changes from Andreas Parschalk (Univ. Innsbruck)
+    
+    - based on changes from Malte Sussdorf for the AOLserver version (from before 2008)
+      https://www.mail-archive.com/aolserver@listserv.aol.com/msg12073.html
+    - added compile flag to force LDAP v3
+    - rebind with original credentials after bind auth try
+
+M	README
+M	nsldap.c
+
+commit 0aa51e20909b2c49b9e5d7eebc60191af28c0f3a
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2019-10-07
+
+    fix typo
+
+M	nsldap.c
+
+commit fd70c654f80bcb29e918bc66056d750b42e017de
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2019-10-07
+
+    whitespace cleanup
+
+M	nsldap.c
+
+commit 033e63e04239d6c627334d646283f96fda169f3b
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2019-10-07
+
+    Provide clean compilation on recent versions of NaviServer and Tcl
+    when compiled with most compiler warnings enabled.
+    Reduce variable scopes
+    
+    Tcl 8.7, NaviServer 4.99.18
+
+M	Makefile
+M	nsldap.c
+
+commit 3c5a796074b9846a52128e2b23ac79b207578db7
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2019-10-07
+
+    improve documentation (Debian dependencies)
+
+M	README
+
+commit 6812053c0e10671c672e16e25a7ce5adb46d845f
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2019-10-07
+
+    fix typo
+
+M	nsldap.c
+
+commit 75f1cb38cd70089ad9c90f2807374c709a4b8bf4
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2018-03-23
+
+    prefer boolean datatype
+
+M	nsldap.c
+
+commit f76c9e39a1d7e9bb07ee55a4f63714a140c275b1
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2018-03-23
+
+    fix typo
+
+M	nsldap.c
+
+commit 6521224ee8fd5c05ab5573d7ac8cb5d00f4fbdb0
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2018-03-23
+
+    modernize Tcl API code
+
+M	nsldap.c
+
+commit ff6369fd139869d1e0759a36959af827d2cad01f
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2016-04-13
+
+    - modernize ldap_* interface (reduce deprecated procs)
+    - add const declarations
+    - prefer lowercase const
+    - output version number in Ns_ModuleInit()
+    - use typedef Ns_ModuleInitProc for Ns_ModuleInit()
+    - bump version number to 0.9
+
+M	README
+M	nsldap.c
+
+commit c3130becd72b7515752b84f0c068227cb8197665
+Author: Gustaf Neumann <neumann@wu-wien.ac.at>
+Date:   2012-10-27
+
+    port of nsldap_v0_r8 from https://sourceforge.net/projects/aolserver/files/nsldap/nsldap_v0_r8/
+
+A	Makefile
+A	README
+A	nsldap.c
