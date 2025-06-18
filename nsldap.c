@@ -59,6 +59,8 @@ typedef struct Pool {
     const char    *desc;
     const char    *schema;
     const char    *host;
+    const char    *uri;
+    const char    *dn;
     int            port;
     const char    *user;
     const char    *pass;
@@ -78,6 +80,8 @@ typedef struct Pool {
 typedef struct Handle {
     const char   *schema;
     const char   *host;
+    const char   *uri;
+    const char   *dn;
     int           port;
     const char   *user;
     const char   *password;
@@ -348,34 +352,61 @@ LDAPCreatePool(const char *pool, const char *path)
     Pool            *poolPtr;
     Handle          *handlePtr;
     int              i, defaultPort = LDAP_PORT;
-    const char      *host;
+    const char      *host, *portString;
 
-    host = Ns_ConfigGetValue(path, CONFIG_HOST);
-    if (host == NULL) {
-        Ns_Log(Error, "nsldap: required host missing for pool '%s'",
-               pool);
-        return NULL;
-    }
     poolPtr = ns_malloc(sizeof(Pool));
     Ns_MutexInit(&poolPtr->lock);
     Ns_MutexSetName2(&poolPtr->lock, "nsldap", pool);
     Ns_CondInit(&poolPtr->waitCond);
     Ns_CondInit(&poolPtr->getCond);
-    poolPtr->host = host;
 
+    host = Ns_ConfigGetValue(path, CONFIG_HOST);
+    poolPtr->uri = Ns_ConfigGetValue(path, "uri");
     poolPtr->schema = Ns_ConfigGetValue(path, "schema");
-    if (poolPtr->schema == NULL) {
-        poolPtr->schema = "ldap";
-    } else if (strcmp(poolPtr->schema, "ldaps") == 0) {
-         defaultPort = LDAPS_PORT;
-    }
-    if (Ns_ConfigGetInt(path, "port", &poolPtr->port) == NS_FALSE) {
-        poolPtr->port = defaultPort;
+    portString = Ns_ConfigGetValue(path, "port");
+    poolPtr->user = Ns_ConfigGetValue(path, CONFIG_USER);
+    poolPtr->pass = Ns_ConfigGetValue(path, CONFIG_PASS);
+    poolPtr->dn = NULL;
+    if (poolPtr->uri != NULL) {
+        if (poolPtr->schema != NULL || poolPtr->host != NULL || portString != NULL) {
+            Ns_Log(Warning, "nsldap: when LDAP URI is used, configuration values of"
+                   " schema, host, and port are ignored for pool '%s'", pool);
+        } else {
+            LDAPURLDesc *parsedURI;
+            int rc;
+
+            rc = ldap_url_parse(poolPtr->uri, &parsedURI);
+            if (rc != LDAP_SUCCESS) {
+                Ns_Log(Error, "nsldap: invalid URI '%s' for pool '%s', ldap_url_parse failed: %s",
+                       poolPtr->uri, pool, ldap_err2string(rc));
+                return NULL;
+            }
+            poolPtr->schema = ns_strdup(parsedURI->lud_scheme);
+#ifdef OPENLDAP_VERSION
+            poolPtr->dn     = ns_strdup(parsedURI->lud_dn);
+#endif
+            poolPtr->host   = ns_strdup(parsedURI->lud_host);
+            poolPtr->port   = parsedURI->lud_port;
+            ldap_free_urldesc(parsedURI);
+        }
+    } else {
+        if (host == NULL) {
+            Ns_Log(Error, "nsldap: required host missing for pool '%s'",
+                   pool);
+            return NULL;
+        }
+        poolPtr->host = host;
+        if (poolPtr->schema == NULL) {
+            poolPtr->schema = "ldap";
+        } else if (strcmp(poolPtr->schema, "ldaps") == 0) {
+            defaultPort = LDAPS_PORT;
+        }
+        if (Ns_ConfigGetInt(path, "port", &poolPtr->port) == NS_FALSE) {
+            poolPtr->port = defaultPort;
+        }
     }
     poolPtr->name = pool;
     poolPtr->waiting = 0;
-    poolPtr->user = Ns_ConfigGetValue(path, CONFIG_USER);
-    poolPtr->pass = Ns_ConfigGetValue(path, CONFIG_PASS);
     poolPtr->desc = Ns_ConfigGetValue("ns/db/pools", pool);
     poolPtr->stale_on_close = 0;
     if (Ns_ConfigGetBool(path, CONFIG_VERBOSE,
@@ -412,6 +443,8 @@ LDAPCreatePool(const char *pool, const char *path)
          * was designed to allow handles outside of pools, a feature
          * no longer supported.
          */
+        handlePtr->uri = poolPtr->uri;
+        handlePtr->dn = poolPtr->dn;
         handlePtr->schema = poolPtr->schema;
         handlePtr->host = poolPtr->host;
         handlePtr->port = poolPtr->port;
@@ -615,11 +648,14 @@ LDAPConnect(Handle *handlePtr)
     Tcl_DString   ds;
     struct berval cred;
 
-    Tcl_DStringInit(&ds);
-    Ns_DStringPrintf(&ds, "%s://%s:%d", handlePtr->schema, handlePtr->host, handlePtr->port);
-
-    err = ldap_initialize(&handlePtr->ldaph, ds.string);
-    Tcl_DStringFree(&ds);
+    if (handlePtr->uri != NULL) {
+        err = ldap_initialize(&handlePtr->ldaph, handlePtr->uri);
+    } else {
+        Tcl_DStringInit(&ds);
+        Ns_DStringPrintf(&ds, "%s://%s:%d", handlePtr->schema, handlePtr->host, handlePtr->port);
+        err = ldap_initialize(&handlePtr->ldaph, ds.string);
+        Tcl_DStringFree(&ds);
+    }
 
     if (err != LDAP_SUCCESS) {
         Ns_Log(Error, "nsldap: could not open connection to server %s://%s on port %d: %s",
