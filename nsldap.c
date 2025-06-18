@@ -83,7 +83,7 @@ typedef struct Handle {
     const char   *password;
     LDAP         *ldaph;
     LDAPMessage  *ldapmessageh;
-    Ns_DString    ErrorMsg;
+    Tcl_DString   ErrorMsg;
     const char   *poolname;
     int           connected;
     struct Handle *nextPtr;
@@ -197,7 +197,7 @@ Ns_ModuleInit(const char *hServer, const char *UNUSED(hModule))
     Tcl_HashSearch  search;
     Pool           *poolPtr;
     Ns_Set         *pools;
-    Ns_DString      ds;
+    Tcl_DString     ds;
     const char     *pool, *path, *allowed;
     register char  *p;
     int             new, tcheck;
@@ -207,7 +207,7 @@ Ns_ModuleInit(const char *hServer, const char *UNUSED(hModule))
 
     context = ns_malloc(sizeof(Context));
 
-    Ns_DStringInit(&ds);
+    Tcl_DStringInit(&ds);
     Tcl_InitHashTable(&context->poolsTable, TCL_STRING_KEYS);
     Tcl_InitHashTable(&context->activeHandles, TCL_STRING_KEYS);
 
@@ -288,7 +288,7 @@ Ns_ModuleInit(const char *hServer, const char *UNUSED(hModule))
         context->allowedPools = (char*)"";
     } else {
         tcheck = INT_MAX;
-        Ns_DStringInit(&ds);
+        Tcl_DStringInit(&ds);
         hPtr = Tcl_FirstHashEntry(&context->poolsTable, &search);
         while (hPtr != NULL) {
             poolPtr = Tcl_GetHashValue(hPtr);
@@ -296,12 +296,12 @@ Ns_ModuleInit(const char *hServer, const char *UNUSED(hModule))
                 tcheck = (int)poolPtr->maxidle;
             }
             Ns_Log(Debug, "nsldap: adding pool %s to the list of allowed pools", poolPtr->name);
-            Ns_DStringNAppend(&ds, poolPtr->name, (int)(strlen(poolPtr->name) + 1));
+            Tcl_DStringAppend(&ds, poolPtr->name, (int)(strlen(poolPtr->name) + 1));
             hPtr = Tcl_NextHashEntry(&search);
         }
         context->allowedPools = ns_malloc((size_t)(ds.length + 1));
         memcpy(context->allowedPools, ds.string, ds.length + 1);
-        Ns_DStringFree(&ds);
+        Tcl_DStringFree(&ds);
         Ns_TclRegisterTrace(hServer, LDAPInterpInit, context, NS_TCL_TRACE_CREATE);
 
         if (tcheck > 0) {
@@ -398,7 +398,7 @@ LDAPCreatePool(const char *pool, const char *path)
     poolPtr->firstPtr = poolPtr->lastPtr = NULL;
     for (i = 0; i < poolPtr->nhandles; ++i) {
         handlePtr = ns_malloc(sizeof(Handle));
-        Ns_DStringInit(&handlePtr->ErrorMsg);
+        Tcl_DStringInit(&handlePtr->ErrorMsg);
         handlePtr->poolPtr = poolPtr;
         handlePtr->connected = NS_FALSE;
         handlePtr->otime = handlePtr->atime = 0;
@@ -1140,7 +1140,7 @@ LDAPPoolPutHandle(Handle *handle)
      * Cleanup the handle.
      */
 
-    Ns_DStringFree(&handle->ErrorMsg);
+    Tcl_DStringFree(&handle->ErrorMsg);
 
     /*
      * Close the handle if it's stale, otherwise update
@@ -1515,7 +1515,7 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
         if (LDAPGetHandle(interp, argv[2], &handlePtr, &hPtr, context) != TCL_OK) {
             return TCL_ERROR;
         }
-        Ns_DStringFree(&handlePtr->ErrorMsg);
+        Tcl_DStringFree(&handlePtr->ErrorMsg);
 
         /*
          * the following commands require just the handle.
