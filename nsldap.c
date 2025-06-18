@@ -299,8 +299,8 @@ Ns_ModuleInit(const char *hServer, const char *UNUSED(hModule))
             Tcl_DStringAppend(&ds, poolPtr->name, (int)(strlen(poolPtr->name) + 1));
             hPtr = Tcl_NextHashEntry(&search);
         }
-        context->allowedPools = ns_malloc((size_t)(ds.length + 1));
-        memcpy(context->allowedPools, ds.string, ds.length + 1);
+        context->allowedPools = ns_malloc((size_t)ds.length + 1u);
+        memcpy(context->allowedPools, ds.string, (size_t)ds.length + 1u);
         Tcl_DStringFree(&ds);
         Ns_TclRegisterTrace(hServer, LDAPInterpInit, context, NS_TCL_TRACE_CREATE);
 
@@ -616,7 +616,7 @@ LDAPConnect(Handle *handlePtr)
     struct berval cred;
 
     Tcl_DStringInit(&ds);
-    Ns_DStringPrintf(&ds, "%s://%s:%d", handlePtr->schema, handlePtr->host, handlePtr->port );
+    Ns_DStringPrintf(&ds, "%s://%s:%d", handlePtr->schema, handlePtr->host, handlePtr->port);
 
     err = ldap_initialize(&handlePtr->ldaph, ds.string);
     Tcl_DStringFree(&ds);
@@ -629,7 +629,7 @@ LDAPConnect(Handle *handlePtr)
         handlePtr->stale = NS_FALSE;
         return NS_ERROR;
     }
-#ifdef LDAPV3
+#if LDAP_API_VERSION >= 3000
     {
         int version = LDAP_VERSION3;
         if (ldap_set_option(handlePtr->ldaph, LDAP_OPT_PROTOCOL_VERSION, &version) != LDAP_SUCCESS) {
@@ -957,13 +957,13 @@ LDAPIncrCount(Pool *poolPtr, int incr)
     if (new) {
         prev = 0;
     } else {
-        prev = (int) Tcl_GetHashValue(hPtr);
+        prev = PTR2INT(Tcl_GetHashValue(hPtr));
     }
     count = prev + incr;
     if (count == 0) {
         Tcl_DeleteHashEntry(hPtr);
     } else {
-        Tcl_SetHashValue(hPtr, (ClientData) INT2PTR(count));
+        Tcl_SetHashValue(hPtr, INT2PTR(count));
     }
     return prev;
 }
