@@ -124,7 +124,7 @@ BadArgs(Tcl_Interp *interp, const char **argv, const char *args);
 static void
 LDAPEnterHandle(Tcl_Interp *interp, Handle *handle, Context *context);
 
-int
+static Ns_ReturnCode
 LDAPBouncePool(const char *pool, Context *context);
 
 static void
@@ -133,13 +133,13 @@ LDAPCheckPool(Pool *poolPtr);
 static Ns_SchedProc LDAPCheckPools;
 static Tcl_CmdProc LDAPCmd;
 
-static int
+static Ns_ReturnCode
 LDAPConnect(Handle *handlePtr);
 
 static Pool *
 LDAPCreatePool(const char *pool, const char *path);
 
-void
+static void
 LDAPDisconnect(Handle *handle);
 
 static void
@@ -153,19 +153,20 @@ LDAPIncrCount(Pool *poolPtr, int incr);
 
 static Ns_TclTraceProc LDAPInterpInit;
 
-static int
+static bool
 LDAPIsStale(Handle *handlePtr, time_t now);
 
-int
+static bool
 LDAPPoolAllowable(Context *context, const char *pool);
 
-void
+static void
 LDAPPoolPutHandle(Handle *handle);
 
-static int
+static Ns_ReturnCode
 LDAPGetHandle(Tcl_Interp *interp, const char *handleId, Handle **handle,
               Tcl_HashEntry **hPtrPtr, Context *context);
-int
+
+static Ns_ReturnCode
 LDAPPoolTimedGetMultipleHandles(Handle **handles, const char *pool,
                                 int nwant, int wait, Context *context);
 static void
@@ -619,7 +620,7 @@ LDAPCheckPool(Pool *poolPtr)
  *----------------------------------------------------------------------
  */
 
-void
+static void
 LDAPDisconnect(Handle *handle)
 {
     ldap_unbind_ext(handle->ldaph, NULL, NULL);
@@ -646,7 +647,7 @@ LDAPDisconnect(Handle *handle)
  *----------------------------------------------------------------------
  */
 
-static int
+static Ns_ReturnCode
 LDAPConnect(Handle *handlePtr)
 {
     int           rc;
@@ -659,7 +660,7 @@ LDAPConnect(Handle *handlePtr)
     } else {
         Tcl_DStringInit(&ds);
         Ns_DStringPrintf(&ds, "%s://%s:%d", handlePtr->schema, handlePtr->host, handlePtr->port);
-        Ns_Log(Debug, "nsldap: try to CONNECT old style: <%s> // %s", ds.string, uri);
+        Ns_Log(Debug, "nsldap: try to CONNECT old style: <%s>", ds.string);
         rc = ldap_initialize(&handlePtr->ldaph, ds.string);
         Tcl_DStringFree(&ds);
     }
@@ -701,6 +702,7 @@ LDAPConnect(Handle *handlePtr)
     }
     handlePtr->connected = NS_TRUE;
     handlePtr->atime = handlePtr->otime = time(NULL);
+    
     Ns_Log(Debug, "LDAPConnect returns NS_OK");
     return NS_OK;
 }
@@ -722,7 +724,7 @@ LDAPConnect(Handle *handlePtr)
  *----------------------------------------------------------------------
  */
 
-static int
+static bool
 LDAPIsStale(Handle *handlePtr, time_t now)
 {
     time_t    minAccess, minOpen;
@@ -769,7 +771,7 @@ LDAPIsStale(Handle *handlePtr, time_t now)
  *----------------------------------------------------------------------
  */
 
-int
+static Ns_ReturnCode
 LDAPPoolTimedGetMultipleHandles(Handle **handles, const char *pool,
                                 int nwant, int wait, Context *context)
 {
@@ -906,7 +908,7 @@ LDAPPoolTimedGetMultipleHandles(Handle **handles, const char *pool,
  *----------------------------------------------------------------------
  */
 
-int
+static Ns_ReturnCode
 LDAPBouncePool(const char *pool, Context *context)
 {
     Pool	*poolPtr;
@@ -1058,7 +1060,7 @@ LDAPFreeCounts(void *arg) {
  *----------------------------------------------------------------------
  */
 
-int
+static bool
 LDAPPoolAllowable(Context *context, const char *pool)
 {
     register const char *p;
@@ -1172,7 +1174,7 @@ ReleaseLDAP(void *context, Ns_Conn *UNUSED(conn))
  *----------------------------------------------------------------------
  */
 
-void
+static void
 LDAPPoolPutHandle(Handle *handle)
 {
     Handle	*handlePtr;
@@ -1218,7 +1220,7 @@ LDAPPoolPutHandle(Handle *handle)
  *      Get LDAP handle from its handle id.
  *
  * Results:
- *      Return TCL_OK if handle is found or TCL_ERROR otherwise.
+ *      Return NS_OK if handle is found or NS_ERROR otherwise.
  *
  * Side effects:
  *	None.
@@ -1226,7 +1228,7 @@ LDAPPoolPutHandle(Handle *handle)
  *----------------------------------------------------------------------
  */
 
-static int
+static Ns_ReturnCode
 LDAPGetHandle(Tcl_Interp *interp, const char *handleId, Handle **handle,
               Tcl_HashEntry **hPtrPtr, Context *context)
 {
@@ -1238,13 +1240,13 @@ LDAPGetHandle(Tcl_Interp *interp, const char *handleId, Handle **handle,
     if (hPtr == NULL) {
         Tcl_AppendResult(interp, "invalid ldap id:  \"", handleId, "\"",
                          NULL);
-        return TCL_ERROR;
+        return NS_ERROR;
     }
     *handle = (Handle *) Tcl_GetHashValue(hPtr);
     if (hPtrPtr != NULL) {
         *hPtrPtr = hPtr;
     }
-    return TCL_OK;
+    return NS_OK;
 }
 
 #if 0
@@ -1563,7 +1565,7 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
         if (argc < 3) {
             return BadArgs(interp, argv, "ldapId ?args?");
         }
-        if (LDAPGetHandle(interp, argv[2], &handlePtr, &hPtr, context) != TCL_OK) {
+        if (LDAPGetHandle(interp, argv[2], &handlePtr, &hPtr, context) != NS_OK) {
             return TCL_ERROR;
         }
         Tcl_DStringFree(&handlePtr->ErrorMsg);
