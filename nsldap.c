@@ -310,11 +310,16 @@ Ns_ModuleInit(const char *hServer, const char *UNUSED(hModule))
 
         if (tcheck > 0) {
             Ns_Time interval;
+            int     rc;
 
             Ns_Log(Debug, "nsldap: Registering LDAPCheckPools (%d)", tcheck);
             interval.sec = tcheck;
             interval.usec = 0;
-            return Ns_ScheduleProcEx(LDAPCheckPools, context, NS_SCHED_THREAD, &interval, NULL);
+            rc = Ns_ScheduleProcEx(LDAPCheckPools, context, NS_SCHED_THREAD, &interval, NULL);
+            if (rc == NS_ERROR) {
+                return NS_ERROR;
+            }
+            Ns_Log(Notice, "nsldap: scheduled checkproc has id %d",  rc);
         }
     }
     /*
@@ -644,22 +649,25 @@ LDAPDisconnect(Handle *handle)
 static int
 LDAPConnect(Handle *handlePtr)
 {
-    int           err;
+    int           rc;
     Tcl_DString   ds;
     struct berval cred;
 
     if (handlePtr->uri != NULL) {
-        err = ldap_initialize(&handlePtr->ldaph, handlePtr->uri);
+        Ns_Log(Debug, "nsldap : try to CONNECT new style: <%s>", handlePtr->uri);
+        rc = ldap_initialize(&handlePtr->ldaph, handlePtr->uri);
     } else {
         Tcl_DStringInit(&ds);
         Ns_DStringPrintf(&ds, "%s://%s:%d", handlePtr->schema, handlePtr->host, handlePtr->port);
-        err = ldap_initialize(&handlePtr->ldaph, ds.string);
+        Ns_Log(Debug, "nsldap: try to CONNECT old style: <%s> // %s", ds.string, uri);
+        rc = ldap_initialize(&handlePtr->ldaph, ds.string);
         Tcl_DStringFree(&ds);
     }
+    Ns_Log(Debug, "nsldap: CONNECT returned: %s", ldap_err2string(rc));
 
-    if (err != LDAP_SUCCESS) {
+    if (rc != LDAP_SUCCESS) {
         Ns_Log(Error, "nsldap: could not open connection to server %s://%s on port %d: %s",
-               handlePtr->schema, handlePtr->host, handlePtr->port, strerror(errno));
+               handlePtr->schema, handlePtr->host, handlePtr->port, ldap_err2string(rc));
         handlePtr->connected = NS_FALSE;
         handlePtr->atime = handlePtr->otime = 0;
         handlePtr->stale = NS_FALSE;
@@ -675,21 +683,25 @@ LDAPConnect(Handle *handlePtr)
             handlePtr->stale = NS_FALSE;
             return NS_ERROR;
         }
+        Ns_Log(Notice, "CONNECT protocol version set to LDAP_VERSION3");
     }
 #endif
 
     cred.bv_val = (char *)handlePtr->password;
     cred.bv_len = strlen(handlePtr->password);
-    err = ldap_sasl_bind_s(handlePtr->ldaph, handlePtr->user, LDAP_SASL_SIMPLE, &cred,
+    rc = ldap_sasl_bind_s(handlePtr->ldaph, handlePtr->user, LDAP_SASL_SIMPLE, &cred,
                            NULL, NULL,     /* no controls right now */
                            NULL);         /* we don't care about the server's credentials */
-    if (err != LDAP_SUCCESS) {
+
+
+    if (rc != LDAP_SUCCESS) {
         Ns_Log(Error, "nsldap: could not bind to server %s: %s",
-               handlePtr->host, ldap_err2string(err));
+               handlePtr->host, ldap_err2string(rc));
         return NS_ERROR;
     }
     handlePtr->connected = NS_TRUE;
     handlePtr->atime = handlePtr->otime = time(NULL);
+    Ns_Log(Debug, "LDAPConnect returns NS_OK");
     return NS_OK;
 }
 
@@ -761,11 +773,12 @@ int
 LDAPPoolTimedGetMultipleHandles(Handle **handles, const char *pool,
                                 int nwant, int wait, Context *context)
 {
-    Handle    *handlePtr;
-    Handle   **handlesPtrPtr = handles;
-    Pool      *poolPtr;
-    Ns_Time    timeoutStruct, *timePtr;
-    int        i, ngot, status;
+    Handle       *handlePtr;
+    Handle      **handlesPtrPtr = handles;
+    Pool         *poolPtr;
+    Ns_Time       timeoutStruct, *timePtr;
+    int           i, ngot;
+    Ns_ReturnCode status;
 
     /*
      * Verify the pool, the number of available handles in the pool,
@@ -1516,6 +1529,8 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
         }
         result = LDAPPoolTimedGetMultipleHandles(handlesPtrPtr, pool,
                                                  nhandles, timeoutSecs, context);
+        Ns_Log(Debug, "CALL LDAPPoolTimedGetMultipleHandles returned %s", Ns_ReturnCodeString(result));
+
         if (result == NS_OK) {
             Tcl_DString ds;
             int i;
