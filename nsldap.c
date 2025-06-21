@@ -38,13 +38,28 @@
 #include <lber.h>
 #include <ldap.h>
 
-#define NSLDAP_VERSION  "1.0d1"
+#define NSLDAP_VERSION  "1.0d2"
 
 #define CONFIG_USER     "user"          /* LDAP default bind DN */
 #define CONFIG_PASS     "password"      /* DN password */
 #define CONFIG_HOST     "host"          /* LDAP server */
 #define CONFIG_CONNS    "connections"   /* Number of LDAP connections. */
 #define CONFIG_VERBOSE  "verbose"       /* Log LDAP queries and errors */
+
+/*
+ * Forward compatibility, in case a new version of the module is compiled
+ * against an old version of NaviServer.
+ */
+#ifndef TCL_SIZE_T
+# define TCL_SIZE_T           int
+#endif
+#ifndef TCL_OBJCMDPROC_T
+# define TCL_OBJCMDPROC_T     Tcl_ObjCmdProc
+# define TCL_CREATEOBJCOMMAND Tcl_CreateObjCommand
+#endif
+#ifndef TCL_INDEX_NONE
+# define TCL_INDEX_NONE       -1
+#endif
 
 /*
  * The Ns_ModuleVersion variable is required.
@@ -119,7 +134,7 @@ static struct timeval timeout = {
  */
 
 static int
-BadArgs(Tcl_Interp *interp, const char **argv, const char *args);
+BadArgs(Tcl_Interp *interp, Tcl_Obj *const* objv, const char *args);
 
 static void
 LDAPEnterHandle(Tcl_Interp *interp, Handle *handle, Context *context);
@@ -131,7 +146,7 @@ static void
 LDAPCheckPool(Pool *poolPtr);
 
 static Ns_SchedProc LDAPCheckPools;
-static Tcl_CmdProc LDAPCmd;
+static TCL_OBJCMDPROC_T LDAPObjCmd;
 
 static Ns_ReturnCode
 LDAPConnect(Handle *handlePtr);
@@ -702,7 +717,7 @@ LDAPConnect(Handle *handlePtr)
     }
     handlePtr->connected = NS_TRUE;
     handlePtr->atime = handlePtr->otime = time(NULL);
-    
+
     Ns_Log(Debug, "LDAPConnect returns NS_OK");
     return NS_OK;
 }
@@ -913,7 +928,6 @@ LDAPBouncePool(const char *pool, Context *context)
 {
     Pool	*poolPtr;
     Handle	*handlePtr;
-
 
     poolPtr = LDAPGetPool(pool, context);
     if (poolPtr == NULL) {
@@ -1297,7 +1311,7 @@ static Ns_ReturnCode
 LDAPInterpInit(Tcl_Interp *interp, const void *context)
 {
 
-    Tcl_CreateCommand(interp, "ns_ldap", LDAPCmd, (ClientData)context, NULL);
+    TCL_CREATEOBJCOMMAND(interp, "ns_ldap", LDAPObjCmd, (ClientData)context, NULL);
 
     return NS_OK;
 }
@@ -1319,10 +1333,10 @@ LDAPInterpInit(Tcl_Interp *interp, const void *context)
  */
 
 static int
-BadArgs(Tcl_Interp *interp, const char **argv, const char *args)
+BadArgs(Tcl_Interp *interp, Tcl_Obj *const* objv, const char *args)
 {
     Tcl_AppendResult(interp, "wrong # args: should be \"",
-                     argv[0], " ", argv[1], NULL);
+                     Tcl_GetString(objv[0]), " ", Tcl_GetString(objv[1]), NULL);
     if (args != NULL) {
         Tcl_AppendResult(interp, " ", args, NULL);
     }
@@ -1360,21 +1374,21 @@ Entry2List(Tcl_Interp *interp, LDAP *ld, LDAPMessage *e,
     dn = ldap_get_dn( ld, e );
     if (namesonly) {
         if (dn != NULL) {
-            listPtr = Tcl_NewStringObj( dn, -1);
+            listPtr = Tcl_NewStringObj( dn, TCL_INDEX_NONE);
             ldap_memfree(dn);
             return listPtr;
         } else {
-            return Tcl_NewStringObj("",-1);
+            return Tcl_NewStringObj("", TCL_INDEX_NONE);
         }
     }
     listPtr = Tcl_NewListObj(0, (Tcl_Obj **) NULL);
     if (dn != NULL) {
         if (!attrsonly) {
             Tcl_ListObjAppendElement(interp, listPtr,
-                                     Tcl_NewStringObj( "dn", -1));
+                                     Tcl_NewStringObj( "dn", TCL_INDEX_NONE));
         }
         Tcl_ListObjAppendElement(interp, listPtr,
-                                 Tcl_NewStringObj( dn, -1));
+                                 Tcl_NewStringObj( dn, TCL_INDEX_NONE));
         ldap_memfree( dn );
     }
     for ( attr = ldap_first_attribute( ld, e, &ber );
@@ -1382,7 +1396,7 @@ Entry2List(Tcl_Interp *interp, LDAP *ld, LDAPMessage *e,
         struct berval **bvals;
 
         Tcl_ListObjAppendElement(interp, listPtr,
-                                 Tcl_NewStringObj( attr, -1));
+                                 Tcl_NewStringObj( attr, TCL_INDEX_NONE));
         if (attrsonly) {
             ldap_memfree( attr );
             continue;
@@ -1426,104 +1440,93 @@ Entry2List(Tcl_Interp *interp, LDAP *ld, LDAPMessage *e,
  */
 
 static int
-LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
+LDAPObjCmd(ClientData ctx, Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const* objv)
 {
 
-    Handle *handlePtr;
+    Handle *handlePtr = NULL;
     const char *cmd;
-    const char *pool;
+    const char *pool = NULL;
     Context *context;
 
     context = (Context *) ctx;
 
-    if (argc < 2) {
+    if (objc < 2) {
         Tcl_AppendResult(interp, "wrong # of args: should be \"",
-                         argv[0], " command ?args ...?", NULL);
+                         Tcl_GetString(objv[0]), " command ?args ...?", NULL);
         return TCL_ERROR;
     }
 
-    cmd = argv[1];
+    cmd = Tcl_GetString(objv[1]);
 
     if (STREQ(cmd, "open") || STREQ(cmd, "close")) {
         Tcl_AppendResult(interp, "unsupported ns_ldap command: ", cmd, NULL);
         return TCL_ERROR;
     } else if (STREQ(cmd, "pools")) {
-
-        if (argc != 2) {
-            return BadArgs(interp, argv, NULL);
-        }
-
-        pool = context->allowedPools;
-        if (pool != NULL) {
-            while (*pool != '\0') {
-                Tcl_AppendElement(interp, pool);
-                pool = pool + strlen(pool) + 1;
+        if (Ns_ParseObjv(NULL, NULL, interp, 2, objc, objv) != NS_OK) {
+            return TCL_ERROR;
+        } else {
+            pool = context->allowedPools;
+            if (pool != NULL) {
+                while (*pool != '\0') {
+                    Tcl_AppendElement(interp, pool);
+                    pool = pool + strlen(pool) + 1;
+                }
             }
         }
-    } else if (STREQ(cmd, "bouncepool")) {
 
-        if (argc != 3) {
-            return BadArgs(interp, argv, "pool");
-        }
-        if (LDAPBouncePool(argv[2], context) == NS_ERROR) {
-            Tcl_AppendResult(interp, "could not bounce: ", argv[2], NULL);
+    } else if (STREQ(cmd, "bouncepool")) {
+        Ns_ObjvSpec largs[] = {
+            {"pool", Ns_ObjvString,  &pool, NULL},
+                {NULL, NULL, NULL, NULL}
+            };
+        if (Ns_ParseObjv(NULL, largs, interp, 2, objc, objv) != NS_OK) {
+            return TCL_ERROR;
+        } else if  (LDAPBouncePool(pool, context) == NS_ERROR) {
+            Tcl_AppendResult(interp, "could not bounce: ", pool, NULL);
             return TCL_ERROR;
         }
-    } else if (STREQ(cmd, "gethandle")) {
-        int timeoutSecs, nhandles, result;
-        Handle **handlesPtrPtr;
 
-        timeoutSecs = 0;
-        if (argc >= 4) {
-            if (STREQ(argv[2], "-timeout")) {
-                if (Tcl_GetInt(interp, argv[3], &timeoutSecs) != TCL_OK) {
-                    return TCL_ERROR;
-                }
-                argv += 2;
-                argc -= 2;
-            } else if (argc > 4) {
-                return BadArgs(interp, argv,
-                               "?-timeout timeout? ?pool? ?nhandles?");
-            }
+    } else if (STREQ(cmd, "gethandle")) {
+        int timeoutSecs = 0;
+        int nhandles = 1;
+        int result;
+        Handle **handlesPtrPtr;
+        Ns_ObjvValueRange posintRange1 = {1, INT_MAX};
+        Ns_ObjvValueRange posintRange0 = {0, INT_MAX};
+
+        Ns_ObjvSpec lopts[] = {
+            {"-timeout", Ns_ObjvInt, &timeoutSecs, &posintRange0},
+            {NULL, NULL, NULL, NULL}
+        };
+        Ns_ObjvSpec largs[] = {
+            {"?pool", Ns_ObjvString, &pool, NULL},
+            {"?nhandles", Ns_ObjvInt, &nhandles, &posintRange1},
+            {NULL, NULL, NULL, NULL}
+        };
+
+        if (Ns_ParseObjv(lopts, largs, interp, 2, objc, objv) != NS_OK) {
+            return TCL_ERROR;
         }
-        argv += 2;
-        argc -= 2;
 
         /*
          * Determine the pool and requested number of handles
          * from the remaining args.
          */
-
-        pool = argv[0];
         if (pool == NULL) {
             pool = context->defaultPool;
             if (pool == NULL) {
-                Tcl_SetObjResult(interp, Tcl_NewStringObj("no defaultpool configured", -1));
+                Tcl_SetObjResult(interp, Tcl_NewStringObj("no defaultpool configured", TCL_INDEX_NONE));
                 return TCL_ERROR;
             }
         }
         if (LDAPPoolAllowable(context, pool) == NS_FALSE) {
-            Tcl_AppendResult(interp, "no access to pool: \"", pool, "\"",
-                             NULL);
+            Ns_TclPrintfResult(interp, "no access to pool: '%s'", pool);
             return TCL_ERROR;
-        }
-        if (argc < 2) {
-            nhandles = 1;
-        } else {
-            if (Tcl_GetInt(interp, argv[1], &nhandles) != TCL_OK) {
-                return TCL_ERROR;
-            }
-            if (nhandles <= 0) {
-                Tcl_AppendResult(interp, "invalid nhandles \"", argv[1],
-                                 "\": should be greater than 0.", NULL);
-                return TCL_ERROR;
-            }
         }
 
         /*
          * Allocate handles and enter them into Tcl.
          */
-
         if (nhandles == 1) {
             handlesPtrPtr = &handlePtr;
         } else {
@@ -1548,26 +1551,39 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
             ns_free(handlesPtrPtr);
         }
         if (result != NS_TIMEOUT && result != NS_OK) {
-            Tcl_AppendResult(interp, "could not allocate ",
-                             nhandles > 1 ? argv[1] : "1", " handle",
-                             nhandles > 1 ? "s" : "", " from pool \"",
-                             pool, "\"", NULL);
+            Ns_TclPrintfResult(interp, "no access to pool: '%s'", pool);
+
+            Tcl_AppendResult(interp, "could not allocate %d handle%s from pool '%s'",
+                             nhandles,  nhandles > 1 ? "s" : "", pool);
             return TCL_ERROR;
         }
 
     } else {
-        Tcl_HashEntry  *hPtr;
-
         /*
          * All remaining commands require a valid ldap handle
          */
+        Tcl_HashEntry  *hPtr;
+        const char     *ldapId = NULL;
+        TCL_SIZE_T  nargs = 0;
+        Ns_ObjvSpec largs[] = {
+            {"ldapId", Ns_ObjvString, &ldapId, NULL},
+            {"?arg",   Ns_ObjvArgs,   &nargs,  NULL},
+            {NULL, NULL, NULL, NULL}
+        };
 
-        if (argc < 3) {
-            return BadArgs(interp, argv, "ldapId ?args?");
-        }
-        if (LDAPGetHandle(interp, argv[2], &handlePtr, &hPtr, context) != NS_OK) {
+        if (Ns_ParseObjv(NULL, largs, interp, 2, objc, objv) != NS_OK) {
             return TCL_ERROR;
         }
+
+        if (LDAPGetHandle(interp, ldapId, &handlePtr, &hPtr, context) != NS_OK) {
+            return TCL_ERROR;
+        }
+
+        /*
+         * "handlePtr" is now initialized an can be used in the subcommands below.
+         */
+        assert(handlePtr != NULL);
+
         Tcl_DStringFree(&handlePtr->ErrorMsg);
 
         /*
@@ -1582,22 +1598,32 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
             STREQ(cmd, "releasehandle") ||
             STREQ(cmd, "connected")) {
 
-            if (argc != 3) {
-                return BadArgs(interp, argv, "ldapId");
+            if (nargs > 0) {
+                Ns_ObjvSpec largs1[] = {
+                    {"ldapId", Ns_ObjvString, &ldapId, NULL},
+                    {NULL, NULL, NULL, NULL}
+                };
+                /*
+                 * We know, the number of arguments is not correct. Use
+                 * Ns_ParseObjv just to generate a consistent error message.
+                 */
+                if (Ns_ParseObjv(NULL, largs1, interp, 2, objc, objv) != NS_OK) {
+                    return TCL_ERROR;
+                }
             }
 
             if (STREQ(cmd, "poolname")) {
-                Tcl_SetObjResult(interp, Tcl_NewStringObj(handlePtr->poolname, -1));
+                Tcl_SetObjResult(interp, Tcl_NewStringObj(handlePtr->poolname, TCL_INDEX_NONE));
             } else if (STREQ(cmd, "password")) {
-                Tcl_SetObjResult(interp,  Tcl_NewStringObj(handlePtr->password, -1));
+                Tcl_SetObjResult(interp,  Tcl_NewStringObj(handlePtr->password, TCL_INDEX_NONE));
             } else if (STREQ(cmd, "user")) {
-                Tcl_SetObjResult(interp, Tcl_NewStringObj(handlePtr->user, -1));
+                Tcl_SetObjResult(interp, Tcl_NewStringObj(handlePtr->user, TCL_INDEX_NONE));
             } else if (STREQ(cmd, "host")) {
-                Tcl_SetObjResult(interp, Tcl_NewStringObj(handlePtr->host, -1));
+                Tcl_SetObjResult(interp, Tcl_NewStringObj(handlePtr->host, TCL_INDEX_NONE));
             } else if (STREQ(cmd, "disconnect")) {
                 LDAPDisconnect(handlePtr);
             } else if (STREQ(cmd, "releasehandle")) {
-                Ns_Log(Debug, "nsldap: releasehandle %s", argv[2]);
+                Ns_Log(Debug, "nsldap: releasehandle %s", ldapId);
                 Tcl_DeleteHashEntry(hPtr);
                 LDAPPoolPutHandle(handlePtr);
             } else if (STREQ(cmd, "connected")) {
@@ -1606,38 +1632,45 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
 
         } else if (STREQ(cmd, "add")) {
             /*
-             * this command requires more than 6 arguments and
-             * they must come in pairs. It's intended use is
-             * ns_ldap add $lh dn attribute value attribute value ...
+             * This subcommand requires more than 6 arguments and they must
+             * come in pairs. Example:
+             *
+             *     ns_ldap add $lh dn attribute value attribute value ...
              */
-            LDAPMod *mod, **moda;
+            LDAPMod    *mod, **moda;
             const char *dn = NULL;
-            int  i, ret = TCL_OK;
-            int  lrc; /* ldap result code */
+            int         i, ret = TCL_OK, lrc, argOffset, pairCount;
+            Ns_ObjvSpec args[] = {
+                {"ldapId", Ns_ObjvString, &ldapId, NULL},
+                {"dn",     Ns_ObjvString, &dn,     NULL},
+                {"?arg",   Ns_ObjvArgs,   &nargs,  NULL},
+                {NULL, NULL, NULL, NULL}
+            };
 
-            if (argc < 6 || (argc % 2) == 1) {
-                return BadArgs(interp, argv, "ldapId dn ?attr value?");
+            if (Ns_ParseObjv(NULL, args, interp, 2, objc, objv) != NS_OK) {
+                return TCL_ERROR;
+            } else if (nargs % 2 != 0) {
+                Ns_TclPrintfResult(interp, "must provide an even number of arguments");
+                return TCL_ERROR;
             }
 
-            dn = argv[3];
+            argOffset = 4; /* command, cmd, ldapId, dn */
+            pairCount = nargs / 2;
+            mod = (LDAPMod *)ns_malloc( (size_t)(pairCount + 1) * sizeof(LDAPMod));
+            moda = (LDAPMod **)ns_malloc( (size_t)(pairCount + 1) * sizeof(LDAPMod*));
 
-            mod = (LDAPMod *)ns_malloc( (size_t)((argc - 4)/2 + 1) * sizeof(LDAPMod));
-            moda = (LDAPMod **)ns_malloc( (size_t)((argc - 4)/2 + 1) * sizeof(LDAPMod*));
-
-            for (i = 0; i < (argc - 4)/2; i++) {
-                const char *attr, *val;
+            for (i = 0; i < pairCount; i++) {
+                const char *attr = Tcl_GetString(objv[argOffset + 2*i]);
+                const char *val  = Tcl_GetString(objv[argOffset + 2*i + 1]);
                 int  vlen;
-
-                attr = argv[2*i + 4];
-                val = argv[2*i + 5];
 
                 mod[i].mod_op = LDAP_MOD_ADD;
                 mod[i].mod_type = (char *)attr;
+
                 if (Tcl_SplitList(interp, val, &vlen, (const char***)&mod[i].mod_values) != TCL_OK) {
                     int j;
 
-                    Tcl_AppendResult(interp, "nsldap [", argv[1], "]: ",
-                                     Tcl_GetStringResult(interp), NULL);
+                    Tcl_AppendResult(interp, "nsldap [", cmd, "]: ", Tcl_GetStringResult(interp), NULL);
                     for(j = 0; j < i; j++) {
                         Tcl_Free( (char *)moda[j]->mod_values);
                     }
@@ -1654,9 +1687,7 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
             lrc = ldap_add_ext_s(handlePtr->ldaph, dn, moda, NULL, NULL);
             if ( lrc != LDAP_SUCCESS) {
                 Ns_Log(Notice, "nsldap: ldap_add_s failed (%d)", lrc);
-                Tcl_AppendResult(interp, "nsldap [", argv[1], "]: ",
-                                 ldap_err2string( lrc ),
-                                 NULL);
+                Tcl_AppendResult(interp, "nsldap [", cmd, "]: ", ldap_err2string( lrc ), NULL);
                 ret = TCL_ERROR;
             }
 
@@ -1671,17 +1702,20 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
             const  char   *dn, *attr, *value;
             struct berval  bvalue;
             int            lrc;
+            Ns_ObjvSpec args[] = {
+                {"ldapId", Ns_ObjvString, &ldapId, NULL},
+                {"dn",     Ns_ObjvString, &dn,     NULL},
+                {"attr",   Ns_ObjvString, &attr,   NULL},
+                {"value",  Ns_ObjvString, &value,  NULL},
+                {NULL, NULL, NULL, NULL}
+            };
 
-            if (argc != 6) {
-                return BadArgs(interp, argv, "ldapId dn attr value");
+            if (Ns_ParseObjv(NULL, args, interp, 2, objc, objv) != NS_OK) {
+                return TCL_ERROR;
             }
 
-            dn = argv[3];
-            attr = argv[4];
-            value = argv[5];
-
             bvalue.bv_val = (char *)value;
-            bvalue.bv_len = strlen(bvalue.bv_val);
+            bvalue.bv_len = strlen(value);
 
             lrc = ldap_compare_ext_s(handlePtr->ldaph, dn, attr, &bvalue, NULL, NULL);
             if (lrc == LDAP_COMPARE_TRUE) {
@@ -1691,25 +1725,27 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
                 Tcl_SetObjResult(interp, Tcl_NewIntObj(0));
                 return TCL_OK;
             } else {
-                Tcl_AppendResult(interp, "nsldap [", argv[1], "]: ",
+                Tcl_AppendResult(interp, "nsldap [", Tcl_GetString(objv[1]), "]: ",
                                  ldap_err2string(lrc), NULL);
                 return TCL_ERROR;
             }
+
         } else if (STREQ(cmd, "delete")) {
             const char *dn;
             int         lrc;
+            Ns_ObjvSpec args[] = {
+                {"ldapId", Ns_ObjvString, &ldapId, NULL},
+                {"dn",     Ns_ObjvString, &dn,     NULL},
+                {NULL, NULL, NULL, NULL}
+            };
 
-            if (argc != 4) {
-                return BadArgs(interp, argv, "ldapId dn");
+            if (Ns_ParseObjv(NULL, args, interp, 2, objc, objv) != NS_OK) {
+                return TCL_ERROR;
             }
-
-            dn = argv[3];
-
             lrc = ldap_delete_ext_s(handlePtr->ldaph, dn, NULL, NULL);
 
             if (lrc != LDAP_SUCCESS) {
-                Tcl_AppendResult(interp, "nsldap [", argv[1], "]: ",
-                                 ldap_err2string(lrc), NULL);
+                Tcl_AppendResult(interp, "nsldap [", cmd, "]: ", ldap_err2string(lrc), NULL);
                 return TCL_ERROR;
             }
 
@@ -1725,35 +1761,35 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
             const char *dn;
             int         i, lrc, mode, count, ret = TCL_OK;
 
-            if (argc < 7) {
+            if (objc < 7) {
             mod_err:
-                return BadArgs(interp, argv, "ldapId dn ?add: fld vals ...? ?mod: fld vals ...? ?del: fld vals ...?");
+                return BadArgs(interp, objv, "ldapId dn ?add: fld vals ...? ?mod: fld vals ...? ?del: fld vals ...?");
             }
 
-            dn = argv[3];
+            dn = Tcl_GetString(objv[3]);
 
             /*
              * validate arguments, and count number of discrete changes
              */
 
             mode = -1;
-            for (count = 0, i=4; i < argc; i++) {
-                if (STREQ(argv[i], "add:")) {
+            for (count = 0, i=4; i < objc; i++) {
+                if (STREQ(Tcl_GetString(objv[i]), "add:")) {
                     mode = LDAP_MOD_ADD;
                     continue;
                 }
-                if (STREQ(argv[i], "mod:")) {
+                if (STREQ(Tcl_GetString(objv[i]), "mod:")) {
                     mode = LDAP_MOD_REPLACE;
                     continue;
                 }
-                if (STREQ(argv[i], "del:")) {
+                if (STREQ(Tcl_GetString(objv[i]), "del:")) {
                     mode = LDAP_MOD_DELETE;
                     continue;
                 }
                 switch(mode) {
                 case LDAP_MOD_ADD:
                 case LDAP_MOD_REPLACE:
-                    if (argc - i < 2) {
+                    if (objc - i < 2) {
                         goto mod_err;
                     }
                     i++;
@@ -1778,33 +1814,33 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
              */
 
             mode = -1;
-            for (count=0,i=4; i < argc; i++) {
+            for (count=0,i=4; i < objc; i++) {
                 const char  *attr, *val;
                 int          vlen;
 
-                if (STREQ(argv[i], "add:")) {
+                if (STREQ(Tcl_GetString(objv[i]), "add:")) {
                     mode = LDAP_MOD_ADD;
                     continue;
                 }
-                if (STREQ(argv[i], "mod:")) {
+                if (STREQ(Tcl_GetString(objv[i]), "mod:")) {
                     mode = LDAP_MOD_REPLACE;
                     continue;
                 }
-                if (STREQ(argv[i], "del:")) {
+                if (STREQ(Tcl_GetString(objv[i]), "del:")) {
                     mode = LDAP_MOD_DELETE;
                     continue;
                 }
 
-                attr = argv[i];
+                attr = Tcl_GetString(objv[i]);
 
                 switch (mode) {
                 case LDAP_MOD_ADD:
                 case LDAP_MOD_REPLACE:
-                    val = argv[i+1];
+                    val = Tcl_GetString(objv[i+1]);
                     mod[count].mod_op = mode;
                     mod[count].mod_type = (char *)attr;
                     if (Tcl_SplitList(interp, val, &vlen, (const char ***)&mod[count].mod_values) != TCL_OK) {
-                        Tcl_AppendResult(interp, "nsldap [", argv[1], "]: ",
+                        Tcl_AppendResult(interp, "nsldap [", Tcl_GetString(objv[1]), "]: ",
                                          Tcl_GetStringResult(interp), NULL);
                         for (i = 0; moda[i]; i++) {
                             if (moda[i]->mod_values != NULL)
@@ -1836,7 +1872,7 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
 
             lrc = ldap_modify_ext_s(handlePtr->ldaph, dn, moda, NULL, NULL);
             if (lrc != LDAP_SUCCESS) {
-                Tcl_AppendResult(interp, "nsldap [", argv[1], "]: ",
+                Tcl_AppendResult(interp, "nsldap [", Tcl_GetString(objv[1]), "]: ",
                                  ldap_err2string(lrc), NULL);
                 ret = TCL_ERROR;
             }
@@ -1848,6 +1884,7 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
             ns_free(moda);
 
             return ret;
+
         } else if (STREQ(cmd, "modrdn")) {
             /*
              * nsldap modrdn $lh dn rdn ?deloldrdn?
@@ -1855,20 +1892,21 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
             const char *dn, *rdn;
             int         lrc, deloldrdn = 0;
 
-            if (argc < 5 || argc > 6) {
-                return BadArgs(interp, argv, "ldapId dn rdn ?deloldrdn?");
-            }
+            Ns_ObjvSpec args[] = {
+                {"ldapId",      Ns_ObjvString, &ldapId,      NULL},
+                {"dn",          Ns_ObjvString, &dn,          NULL},
+                {"rdn",         Ns_ObjvString, &rdn,         NULL},
+                {"?deloldrdn",  Ns_ObjvBool,   &deloldrdn,   NULL},
+                {NULL, NULL, NULL, NULL}
+            };
 
-            dn = argv[3];
-            rdn = argv[4];
-
-            if (argc == 6 &&
-                Tcl_GetBoolean(interp, argv[5], &deloldrdn) != TCL_OK)
+            if (Ns_ParseObjv(NULL, args, interp, 2, objc, objv) != NS_OK) {
                 return TCL_ERROR;
+            }
 
             lrc = ldap_rename_s(handlePtr->ldaph, dn, rdn, NULL, deloldrdn, NULL, NULL);
             if (lrc != LDAP_SUCCESS) {
-                Tcl_AppendResult(interp, "nsldap [", argv[1], "]: ",
+                Tcl_AppendResult(interp, "nsldap [", Tcl_GetString(objv[1]), "]: ",
                                  ldap_err2string( lrc ), NULL);
                 return TCL_ERROR;
             }
@@ -1884,12 +1922,16 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
             struct berval bercred;
             int    err;
 
-            if (argc < 3) {
-                return BadArgs(interp, argv, "ldapId <dn:user> password ");
-            }
+            Ns_ObjvSpec args[] = {
+                {"ldapId", Ns_ObjvString, &ldapId, NULL},
+                {"dn",     Ns_ObjvString, &dn,     NULL},
+                {"pass",   Ns_ObjvString, &pass,   NULL},
+                {NULL, NULL, NULL, NULL}
+            };
 
-            dn = argv[3];
-            pass = argv[4];
+            if (Ns_ParseObjv(NULL, args, interp, 2, objc, objv) != NS_OK) {
+                return TCL_ERROR;
+            }
 
             berpass.bv_val = (char *)pass;
             berpass.bv_len = strlen(pass);
@@ -1899,7 +1941,6 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
             err = ldap_sasl_bind_s(handlePtr->ldaph, dn, LDAP_SASL_SIMPLE, &berpass,
                                    NULL, NULL,
                                    NULL);
-
             /*
              * Rebind with original authentication credentials.
              */
@@ -1931,95 +1972,82 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
              *                ?filter?
              */
             LDAPMessage   *result, *e;
-            const char    *base, *filter, *opt;
-            const char   **attrs = NULL;
+            const char    *base, **attrs;
+            const char    *filter = "objectClass=*";
             int            scope = LDAP_SCOPE_BASE;
             int            attrsonly = 0;
             int            namesonly = 0;
-            int            idx, msgid, rc;
+            int            msgid, rc;
             Tcl_Obj       *listPtr;
+            Tcl_Obj      **attrv = NULL;
+            TCL_SIZE_T     attrc = 0;
 
-            for (idx = 3; (argc - idx) > 1; idx += 2) {
-                opt = argv[idx];
+            static Ns_ObjvTable scopes[] = {
+                {"base",     LDAP_SCOPE_BASE},
+                {"onelevel", LDAP_SCOPE_ONELEVEL},
+                {"subtree",  LDAP_SCOPE_SUBTREE},
+                {NULL,       0u}
+            };
 
-                if (opt[0] != '-')
-                    break;
-                if (STREQ(opt, "-scope")) {
-                    if (STREQ(argv[idx+1], "base")) {
-                        scope = LDAP_SCOPE_BASE;
-                    } else if (STREQ(argv[idx+1], "onelevel")) {
-                        scope = LDAP_SCOPE_ONELEVEL;
-                    } else if (STREQ(argv[idx+1], "subtree")) {
-                        scope = LDAP_SCOPE_SUBTREE;
-                    } else {
-                        Tcl_AppendResult(interp, "nsldap [", argv[1],
-                                         "]: unknown scope, must be ",
-                                         " [base, onelevel, subtree]",
-                                         NULL);
-                        return TCL_ERROR;
-                    }
-                } else if (STREQ(argv[idx], "-attrs")) {
-                    if (Tcl_GetBoolean(interp, argv[idx+1], &attrsonly)
-                        != TCL_OK)
-                        return TCL_ERROR;
-                } else if (STREQ(argv[idx], "-names")) {
-                    if (Tcl_GetBoolean(interp, argv[idx+1], &namesonly)
-                        != TCL_OK)
-                        return TCL_ERROR;
-                    if (namesonly)
-                        attrsonly = 1;
-                } else {
-                    Tcl_AppendResult(interp, "nsldap [", argv[1], "]: ",
-                                     "bad option \"", opt,
-                                     "\": must be -attrs, -names or ",
-                                     "-scope", NULL);
-                    return TCL_ERROR;
-                }
-            }
-            if ( (argc - idx) < 1) {
-                return BadArgs(interp, argv, "ldapId ?options? base ?filter? ?attrs ...?");
+            Ns_ObjvSpec opts[] = {
+                {"-scope", Ns_ObjvIndex, &scope,     scopes},
+                {"-attrs", Ns_ObjvBool,  &attrsonly, NULL},
+                {"-names", Ns_ObjvBool,  &namesonly, NULL},
+                {NULL, NULL, NULL, NULL}
+            };
+
+            Ns_ObjvSpec args[] = {
+                {"base",    Ns_ObjvString, &base,   NULL},
+                {"?filter", Ns_ObjvString, &filter, NULL},
+                {"?attrs",  Ns_ObjvArgs,   &attrv,  &attrc},
+                {NULL, NULL, NULL, NULL}
+            };
+
+            if (Ns_ParseObjv(opts, args, interp, 3, objc, objv) != NS_OK) {
                 return TCL_ERROR;
             }
-            base = argv[idx];
-            if ( (argc -idx) > 1)
-                filter = argv[idx+1];
-            else
-                filter = "objectClass=*";
 
-            idx += 2;
-            if (idx < argc) {
-                int j;
-
-                attrs = ns_malloc( (size_t)(argc-idx+1) * sizeof(char *));
-                for (j = 0; idx < argc; j++) {
-                    attrs[j] = argv[idx++];
-                }
-                attrs[j] = NULL;
+            if (namesonly) {
+                attrsonly = 1;
             }
+
+            if (attrc > 0) {
+                TCL_SIZE_T i;
+
+                attrs = ns_malloc((size_t)(attrc + 1) * sizeof(char *));
+                for (i = 0; i < attrc; ++i) {
+                    attrs[i] = Tcl_GetString(attrv[i]);
+                }
+                attrs[attrc] = NULL;
+            } else {
+                attrs = NULL;
+            }
+
+            Ns_Log(Debug, "nsldap: perform search with filter '%s'", filter),
             rc = ldap_search_ext(handlePtr->ldaph, base, scope, filter,
                                  (char **)attrs, attrsonly,
                                  NULL /* serverctrls */, NULL /* clientctrls */,
                                  NULL /*struct timeval *timeout */,
                                  LDAP_NO_LIMIT,
-                                 &msgid );
-            if (attrs != NULL)
-                ns_free( attrs );
+                                 &msgid);
+            if (attrs != NULL) {
+                ns_free(attrs);
+            }
             if (rc != LDAP_SUCCESS) {
                 /* how do I check the error??? */
-                Tcl_AppendResult(interp, "nsldap [", argv[1], "]: ",
-                                 "couldn't perform search."
-                                 , NULL);
+                Tcl_AppendResult(interp, "nsldap [", cmd, "]: ",
+                                 "couldn't perform search: ", ldap_err2string(rc), NULL);
                 return TCL_ERROR;
             }
 
             listPtr = Tcl_NewListObj(0, (Tcl_Obj **) NULL);
             while ( (rc = ldap_result(handlePtr->ldaph, msgid, 0, &timeout, &result)) == LDAP_RES_SEARCH_ENTRY) {
                 /*
-                 * foreach entry print out name + all attrs and values
+                 * Foreach entry print out name + all attrs and values
                  */
-
                 for (e = ldap_first_entry(handlePtr->ldaph, result);
-                     e != NULL; e = ldap_next_entry(handlePtr->ldaph, e)) {
+                     e != NULL;
+                     e = ldap_next_entry(handlePtr->ldaph, e)) {
                     Tcl_ListObjAppendElement(interp, listPtr,
                                              Entry2List(interp, handlePtr->ldaph, e, attrsonly, namesonly));
                 }
@@ -2034,27 +2062,28 @@ LDAPCmd(ClientData ctx, Tcl_Interp *interp, int argc, const char **argv)
                     char *dn;
 
                     ldap_parse_result(handlePtr->ldaph, result, &err, &dn, NULL, NULL, NULL, 0);
-                    Tcl_AppendResult(interp, "nsldap [", argv[1], "]: ",
+                    Tcl_AppendResult(interp, "nsldap [", Tcl_GetString(objv[1]), "]: ",
                                      "couldn't retrieve search results: ",
                                      ldap_err2string(err),
                                      NULL);
                     ldap_msgfree(result);
                     return TCL_ERROR;
                 } else {
-                    Tcl_AppendResult(interp, "nsldap [", argv[1], "]: ",
+                    Tcl_AppendResult(interp, "nsldap [", Tcl_GetString(objv[1]), "]: ",
                                      "couldn't retrieve search results:",
                                      " timeout", NULL);
                     ldap_msgfree(result);
                     return TCL_ERROR;
                 }
-            } else {
-                ldap_msgfree(result);
-                Tcl_SetObjResult(interp, listPtr);
-                return TCL_OK;
             }
+
+            ldap_msgfree(result);
+            Tcl_SetObjResult(interp, listPtr);
+            return TCL_OK;
+
         } else {
-            Tcl_AppendResult(interp, argv[0], ": Unknown command\"",
-                             argv[1], "\": should be "
+            Tcl_AppendResult(interp, Tcl_GetString(objv[0]), ": Unknown command\"",
+                             Tcl_GetString(objv[1]), "\": should be "
                              "bind, "
                              "bouncepool, "
                              "connected, "
