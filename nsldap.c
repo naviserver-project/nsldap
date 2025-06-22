@@ -1,30 +1,12 @@
 /*
- * The contents of this file are subject to the AOLserver Public License
- * Version 1.1 (the "License"); you may not use this file except in
- * compliance with the License. You may obtain a copy of the License at
- * http://aolserver.com/.
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * The Initial Developer of the Original Code and related documentation
+ * is America Online, Inc. Portions created by AOL are Copyright (C) 1999
+ * America Online, Inc. All Rights Reserved.
  *
- * The Original Code is AOLserver Code and related documentation
- * distributed by AOL.
- *
- * The Initial Developer of the Original Code is America Online,
- * Inc. Portions created by AOL are Copyright (C) 1999 America Online,
- * Inc. All Rights Reserved.
- *
- * Alternatively, the contents of this file may be used under the terms
- * of the GNU General Public License (the "GPL"), in which case the
- * provisions of GPL are applicable instead of those above.  If you wish
- * to allow use of your version of this file only under the terms of the
- * GPL and not to allow others to use your version of this file under the
- * License, indicate your decision by deleting the provisions above and
- * replace them with the notice and other provisions required by the GPL.
- * If you do not delete the provisions above, a recipient may use your
- * version of this file under either the License or the GPL.
  */
 
 /*
@@ -1390,6 +1372,39 @@ Entry2List(Tcl_Interp *interp, LDAP *ld, LDAPMessage *e,
     return listPtr;
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * LdapGetHandleCmd --
+ *
+ *      Implements "ns_ldap gethandle" command.  The function returns one or
+ *      more LDAP handles from a connection pool, with optional timeout.  On
+ *      success, returns a Tcl list of handle IDs.  On timeout, returns an
+ *      empty list with TCL_OK.  On error, returns TCL_ERROR with an error
+ *      message.
+ *
+ * Syntax:
+ *      ns_ldap gethandle ?-timeout <secs>? ?<pool>? ?<nhandles>?
+ *
+ * Parameters:
+ *      interp     - Tcl interpreter for result and errors.
+ *      objc,objv - argument count and vector.
+ *      context    - LDAP context holding default and allowed pools.
+ *
+ * Results:
+ *      TCL_OK      - handles allocated or timeout (empty list).
+ *      TCL_ERROR   - argument parsing failure, no default pool,
+ *                    access denied to pool, or other error.
+ *
+ * Side Effects:
+ *      May allocate an array of Handle* pointers.
+ *      Calls LDAPPoolTimedGetMultipleHandles() to block until handles
+ *      are available or timeout occurs.
+ *      On success, enters each handle into Tcl via LDAPEnterHandle().
+ *      Frees temporary handle array if more than one handle requested.
+ *
+ *----------------------------------------------------------------------
+ */
 static int
 LdapGetHandleCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv, Context *context)
 {
@@ -1467,6 +1482,39 @@ LdapGetHandleCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv, Cont
     return TCL_OK;
 }
 
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * LdapAddCmd --
+ *
+ *      Implements the "ns_ldap add" command.  Constructs and performs a
+ *      synchronous LDAP add operation for the given distinguished name (DN)
+ *      and attribute/value pairs.
+ *
+ * Syntax:
+ *      ns_ldap add <ldapId> <dn> <attr1> <vals1> [<attr2> <vals2> ...]
+ *
+ * Parameters:
+ *      interp    - Tcl interpreter for setting results or errors.
+ *      objc,objv - number of Tcl arguments and their values.
+ *      handlePtr - pointer to an authenticated LDAP connection handle.
+ *      cmdName   - subcommand name (used in error messages, e.g. "add").
+ *
+ * Results:
+ *      TCL_OK    - LDAP add succeeded.
+ *      TCL_ERROR - on argument parsing failure, odd number of attr/val
+ *                  arguments, memory or list-splitting error, or if the
+ *                  LDAP add operation itself fails.  In the latter case,
+ *                  an error string including ldap_err2string() is appended.
+ *
+ * Side Effects:
+ *      Allocates an array of LDAPMod structs and a parallel pointer array,
+ *      splits each vals string into a list for mod_values via Tcl_SplitList(),
+ *      invokes ldap_add_ext_s(), then cleans up allocated memory and lists.
+ *
+ *----------------------------------------------------------------------
+ */
 static int
 LdapAddCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv, Handle *handlePtr, const char *cmdName)
 {
@@ -1532,6 +1580,35 @@ LdapAddCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv, Handle *ha
     return ret;
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * LdapBindCmd --
+ *
+ *      Implements "ns_ldap bind" command.  Performs a simple SASL bind to the
+ *      directory using the provided DN and password, then restores the
+ *      original connection credentials.
+ *
+ * Syntax:
+ *      ns_ldap bind <ldapId> <dn> <pass>
+ *
+ * Parameters:
+ *      interp    - Tcl interpreter for setting results or errors.
+ *      objc,objv - number of Tcl arguments and their values.
+ *      handlePtr - pointer to an existing LDAP connection handle.
+ *      cmdName   - subcommand name (unused here, provided for consistency).
+ *
+ * Results:
+ *      TCL_OK    - bind succeeded, interpreter result is set to integer 1.
+ *      TCL_ERROR - on argument parsing failure or if LDAP bind fails;
+ *                  prints an error via Ns_Log and sets interpreter result
+ *                  to integer 0.
+ *
+ * Side Effects:
+ *      Uses ldap_sasl_bind_s() to authenticate; logs errors on failure.
+ *
+ *----------------------------------------------------------------------
+ */
 static int
 LdapBindCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv,
             Handle *handlePtr, const char *UNUSED(cmdName))
@@ -1574,6 +1651,34 @@ LdapBindCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv,
     return TCL_OK;
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * LdapCompareCmd --
+ *
+ *      Implements "ns_ldap compare" command.  Performs an LDAP compare
+ *      operation for a single attribute/value pair on the given entry DN.
+ *
+ * Syntax:
+ *      ns_ldap compare <ldapId> <dn> <attr> <value>
+ *
+ * Parameters:
+ *      interp    - Tcl interpreter for setting results or errors.
+ *      objc,objv - number of Tcl arguments and their values.
+ *      handlePtr - pointer to an existing LDAP connection handle.
+ *      cmdName   - name of the subcommand, used in error messages.
+ *
+ * Results:
+ *      TCL_OK    - compare operation returned LDAP_COMPARE_TRUE or
+ *                  LDAP_COMPARE_FALSE. Interpreter result is set to integer 0.
+ *      TCL_ERROR - on argument parsing failure or any other LDAP error;
+ *                  prints "nsldap [compare]: <error>" and leaves error in interp.
+ *
+ * Side Effects:
+ *      Issues an ldap_compare_ext_s() call against the directory.
+ *
+ *----------------------------------------------------------------------
+ */
 static int
 LdapCompareCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv,
                Handle *handlePtr, const char *cmdName)
@@ -1610,6 +1715,34 @@ LdapCompareCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv,
     return TCL_ERROR;
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * LdapDeleteCmd --
+ *
+ *      Implements "ns_ldap delete" command.  Performs an LDAP delete
+ *      operation to remove the entry with the specified distinguished name
+ *      (DN).
+ *
+ * Syntax:
+ *      ns_ldap delete <ldapId> <dn>
+ *
+ * Parameters:
+ *      interp    - Tcl interpreter for setting results or errors.
+ *      objc,objv - number of Tcl arguments and their values.
+ *      handlePtr - pointer to an existing LDAP connection handle.
+ *      cmdName   - name of the subcommand, used in error messages.
+ *
+ * Results:
+ *      TCL_OK    - entry was successfully deleted.
+ *      TCL_ERROR - on argument parsing failure or LDAP error; prints
+ *                  "nsldap [delete]: <error>" and leaves error in interp.
+ *
+ * Side Effects:
+ *      Issues an ldap_delete_ext_s() call against the directory.
+ *
+ *----------------------------------------------------------------------
+ */
 static int
 LdapDeleteCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv,
               Handle *handlePtr, const char *cmdName)
@@ -1637,6 +1770,43 @@ LdapDeleteCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv,
     return TCL_OK;
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * LdapModifyCmd --
+ *
+ *      Implements "ns_ldap modify" command.  Performs an LDAP modify
+ *      operation on the entry with the specified distinguished name (DN),
+ *      applying one or more attribute changes.
+ *
+ * Syntax:
+ *      ns_ldap modify <ldapId> <dn>
+ *                      ?add:    <attr> <valList> ...?
+ *                      ?mod:    <attr> <valList> ...?
+ *                      ?del:    <attr> ...?
+ *
+ *      - add:   adds values to the given attribute
+ *      - mod:   replaces values of the given attribute
+ *      - del:   deletes the given attribute (or specific values)
+ *
+ * Parameters:
+ *      interp    - Tcl interpreter for setting results or errors.
+ *      objc,objv - count and array of Tcl arguments.
+ *      handlePtr - pointer to an existing LDAP connection handle.
+ *      cmdName   - name of this subcommand, used in error messages.
+ *
+ * Results:
+ *      TCL_OK    - modifications applied successfully (or no ops if none).
+ *      TCL_ERROR - on syntax error, argument parsing failure, or LDAP error;
+ *                  leaves an error string like
+ *                      "nsldap [modify]: <ldap_err2string>"
+ *
+ * Side Effects:
+ *      Allocates temporary LDAPMod array and value lists,
+ *      calls ldap_modify_ext_s(), then frees all allocated memory.
+ *
+ *----------------------------------------------------------------------
+ */
 static int
 LdapModifyCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv,
               Handle *handlePtr, const char *cmdName)
@@ -1738,6 +1908,39 @@ LdapModifyCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv,
     return ret;
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * LdapModrdnCmd --
+ *
+ *      Implements the "ns_ldap modrdn" command.  Renames (modifies the
+ *      relative distinguished name) of an LDAP entry.
+ *
+ * Syntax:
+ *      ns_ldap modrdn <ldapId> <dn> <newRdn> ?deloldrdn?
+ *
+ *      - <ldapId>      : Identifier of an existing LDAP connection handle
+ *      - <dn>          : Distinguished Name of the entry to rename
+ *      - <newRdn>      : New relative DN (e.g. "cn=NewName")
+ *      - ?deloldrdn?   : If nonzero, remove the old RDN attribute from the entry
+ *
+ * Parameters:
+ *      interp    - Tcl interpreter for setting results or error messages.
+ *      objc,objv - count and array of Tcl arguments.
+ *      handlePtr - pointer to the LDAP connection handle.
+ *      cmdName   - name of this subcommand, used in error reporting.
+ *
+ * Results:
+ *      TCL_OK    - entry renamed successfully.
+ *      TCL_ERROR - on argument parsing failure or LDAP error; returns an error
+ *                  message of the form
+ *                      "nsldap [modrdn]: <ldap_err2string>"
+ *
+ * Side Effects:
+ *      Calls ldap_rename_s() on the LDAP handle.  No additional allocations.
+ *
+ *----------------------------------------------------------------------
+ */
 static int
 LdapModrdnCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv,
               Handle *handlePtr, const char *cmdName)
@@ -1769,6 +1972,51 @@ LdapModrdnCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv,
     return TCL_OK;
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * LdapSearchCmd --
+ *
+ *      Implements the "ns_ldap search" command.  Performs an LDAP search on
+ *      the specified base DN, with optional scope, filter, and attribute
+ *      selection, and returns a Tcl list of entries.  Each entry is converted
+ *      to a Tcl list/dict via Entry2List().
+ *
+ * Syntax:
+ *      ns_ldap search
+ *          ?-scope base|onelevel|subtree?
+ *          ?-attrs bool?
+ *          ?-names bool?
+ *          <baseDN>
+ *          ?<filter>?
+ *          ?<attr1> <attr2> ...?
+ *
+ *      - -scope     : Search scope (default "base")
+ *      - -attrs     : If true, return only attribute names, no values
+ *      - -names     : If true, return only names (implies -attrs)
+ *      - <baseDN>   : Distinguished Name to search under
+ *      - <filter>   : LDAP filter string (default "(objectClass=*)")
+ *      - <attr...>  : List of attribute names to request (default all)
+ *
+ * Parameters:
+ *      interp    - Tcl interpreter for result/error reporting.
+ *      objc,objv - argument count and array.
+ *      handlePtr - active LDAP connection handle.
+ *      cmdName   - name of this subcommand, used in error messages.
+ *
+ * Results:
+ *      TCL_OK    - sets Tcl result to a list of LDAP entries (each as list/dict).
+ *      TCL_ERROR - on parse failure, LDAP error, or result retrieval error;
+ *                  returns an error message "nsldap [search]: <message>".
+ *
+ * Side Effects:
+ *      Allocates a small attrs array if specific attributes requested,
+ *      frees it after ldap_search_ext.  Iterates ldap_result loop until
+ *      completion, freeing intermediate messages.  Uses Entry2List() to
+ *      format each entry.
+ *
+ *----------------------------------------------------------------------
+ */
 static int
 LdapSearchCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv,
               Handle *handlePtr, const char *cmdName)
@@ -1870,16 +2118,63 @@ LdapSearchCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv,
 /*
  *----------------------------------------------------------------------
  *
- * LDAPCmd --
+ * LDAPObjCmd --
  *
- *      A Tcl command that prints a friendly string with the name
- *      passed in on the first argument.
+ *      Main Tcl command implementation for "ns_ldap".  Parses the
+ *      subcommand name and dispatches to the appropriate handler.
+ *      Supported subcommands include:
+ *          pools, bouncepool, gethandle,
+ *          add, bind, compare, connected, delete, disconnect,
+ *          host, modify, modrdn, password, poolname, releasehandle,
+ *          search, user
+ *
+ *      Subcommand dispatch:
+ *        - pools, bouncepool, gethandle: handled immediately, no LDAP handle needed.
+ *        - All other commands require an existing LDAP handle:
+ *              * parse “ldapId” argument
+ *              * lookup or create the Handle via LDAPGetHandle()
+ *              * invoke the specialized LdapXXXCmd() or inline logic
+ *
+ * Syntax:
+ *      ns_ldap <subcommand> ?args...?
+ *
+ *      Subcommands and their arguments:
+ *        pools
+ *            Returns the list of allowed connection pools.
+ *
+ *        bouncepool <pool>
+ *            Reconnects all handles in <pool>.
+ *
+ *        gethandle ?-timeout <secs>? ?<pool>? ?<nhandles>?
+ *            Allocates one or more LDAP handles from the named pool.
+ *
+ *        add <ldapId> <dn> <attr> <value> ...
+ *        bind <ldapId> <dn> <password>
+ *        compare <ldapId> <dn> <attr> <value>
+ *        delete <ldapId> <dn>
+ *        disconnect <ldapId>
+ *        host <ldapId>
+ *        modify <ldapId> <dn> ?add:/mod:/del: clauses...
+ *        modrdn <ldapId> <dn> <newrdn> ?deloldrdn?
+ *        password <ldapId>
+ *        poolname <ldapId>
+ *        releasehandle <ldapId>
+ *        search <ldapId> [-scope ...] [-attrs bool] [-names bool] <base> ?filter? ?attrs...?
+ *        user <ldapId>
+ *
+ * Parameters:
+ *      ctx    - ClientData pointing to the LDAP Context
+ *      interp - Tcl interpreter for result and error reporting
+ *      objc   - argument count
+ *      objv   - array of Tcl_Obj* arguments
  *
  * Results:
- *	NS_OK or NS_ERROR;
+ *      Returns TCL_OK on success (result set appropriately),
+ *      TCL_ERROR on parse or runtime failure (error message set).
  *
- * Side effects:
- *	Tcl result is set to a string value.
+ * Side Effects:
+ *      May allocate or release LDAP handles, perform LDAP operations,
+ *      and set the Tcl interpreter result or error message.
  *
  *----------------------------------------------------------------------
  */

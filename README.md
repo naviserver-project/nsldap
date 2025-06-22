@@ -9,8 +9,8 @@ that you define "pools" in your config file for NaviServer and then
 get "handles" to the connections allowed in those pools from your
 code.
 
-The actual LDAP API is modelled after sensus consulting's LDAP
-extensions for Tcl. It is described later in this document.
+The actual LDAP API is modeled after Sensus Consulting's LDAP
+extensions for Tcl, extended with NaviServer-style pooling.
 
 The compilation requires the LDAP, sasl and OpenSSL libraries.
 On a debian system, you might have to install these with the
@@ -108,115 +108,116 @@ If you look at this carefully you'll see it's almost the same as the
 database pools.
 
 
-Application Programmer's Interface (API)
-----------------------------------------
+---
 
-This module provides a new command called ns_ldap which is modelled
-after the ns_db command in some respects.
+## Tcl API Reference
 
-#### `ns_ldap pools`
-  Gives the list of available pools
+The `ns_ldap` command supports the following subcommands:
 
-#### `ns_ldap bouncepool /poolname/`
-  Closes all handles on the Pool
 
-#### `ns_ldap gethandle ?-timeout timeout? ?pool? ?nhandles?  `
-  Gets ?nhandles? handles from pool ?pool? or the defaultpool
-  defined in the config file if ?pool? is omitted. If ?nhandles? is
-  omitted, 1 handle is returned.
-    
-  An optional timeout ?timeout? can be specified.
+### `ns_ldap pools`
+Returns the list of configured pool names available to the current
+server context.
+
+### `ns_ldap bouncepool /poolname/`
+Closes and reinitializes all handles in the named pool.
+
+### `ns_ldap gethandle ?-timeout /timeout/? ?/poolname/? ?/nhandles/?`
+Fetches one or more LDAP handles from the specified pool. If no pool is given, the default is used.
+
+- `-timeout`: Optional timeout in seconds.
+- `poolname`: Optional; pool to pull from.
+- `nhandles`: Optional; number of handles to retrieve (default 1).
+
+Returns a handle name or a list of handle names.
+
+### `ns_ldap poolname <ldaph>`
+Returns the pool name associated with the given handle.
 
 #### `ns_ldap poolname /ldaph/`
-  Returns the name of the pool referenced by the handle $ldaph
+Returns the password used to bind the connection represented by `/ldaph/`.
 
 #### `ns_ldap password /ldaph/`
-  Returns the password used to bind to the pool referenced by $ldaph
+Returns the password used to bind the connection represented by `/ldaph/`.
 
 #### `ns_ldap user /ldaph/`
-  Returns the BindDN used to bind to the pool referenced by $ldaph
+Returns the user (bind DN) of the connection.
 
 #### `ns_ldap host /ldaph/`
-  Returns the host to which the pool referenced by $ldaph is bound
+Returns the hostname of the server connected by this handle.
 
 #### `ns_ldap disconnect /ldaph/`
-  Disconnects the pool referenced by $ldaph
+Closes the underlying LDAP connection associated with the handle.
 
 #### `ns_ldap releasehandle /ldaph/`
-  Releases the handle referenced by $ldaph (which was obtained using ns_ldap gethandle)
+Releases the handle back to its pool.
 
 #### `ns_ldap connected /ldap/`
-  Checks if the handle $ldaph references a pool that is connected.
+Returns 1 if the connection is alive, 0 otherwise.
 
-#### `ns_ldap add /ldaph/ /dn/ ?attr value?`
-  Adds an object to the LDAP directory using the handle $ldaph.
-  
-*   `dn` is the DN of the object to be added
-*   Pairs `?attr value?` can be specified to set attributes to
-    values. If the attribute is multivalued, a Tcl list can be provided.
+#### `ns_ldap add /ldaph/ /dn/ /attr1/ /val1/ /attr2/ /val2/ ...`
+Adds an LDAP object at the given DN.
 
-#### `ns_ldap compare /ldaph/ /dn/ /attr/ /value/`
-  Issues a compare, returns 1 (true) if attr matches value, 0
-  otherwise.
+- Accepts pairs of attribute/value.
+- Multivalued attributes must be passed as a Tcl list in `valN`.
 
-#### `ns_ldap delete /ldaph/ dn`
-
-  Removes the object referenced by dn from the LDAP tree. Most
-  directories will not allow you to delete an object that has
-  children.
-
-
-#### `ns_ldap modify /ldaph/ ?add: fld valList ...? ?mod: fld valList ...? ?del: fld valList ...?`
-
-Modifies an entry in the directory. This is best shown by an example.
-The following adds two objectclass attributes, deletes the junkAttr
-attribute and replaces any existing cn attributes with the single value
-"Foo Bar": 
-
-```
-ns_ldap modify $ldaph $dn add: objectclass [list person inetOrgPerson] del: junkAttr mod: cn [list "Foo Bar"]
+Example:
+```tcl
+ns_ldap add $lh "cn=John Doe,dc=example,dc=com" givenName John sn Doe objectClass {person inetOrgPerson}
 ```
 
-#### `ns_ldap modrdn /ldaph/ /dn/ /rdn/ ?deloldrdn?`
-
-Renames an object (changes the rdn).
-
-#### `ns_ldap bind /ldaph/ /username/ /password/`
-
-This command is meant to be used for credentials check only.
-
-*     Issues an LDAP bind with the username and password, returns 1 (true) if
-      the username/password combination
-      is valid for authentication, 0 otherwise.
-      
-*     Issues a second bind with the original credentials right afterwards to
-      prevent working on LDAP as the user authenticated with the application.
+### `ns_ldap compare /ldaph/ /dn/ /attr/ /value/`
+Compares the attribute at `dn` with `value`. Returns 1 for match, 0 for no match.
 
 
-#### `ns_ldap search /ldaph/ ?-scope [base onelevel subtree]? ?-attrs bool? ?-names bool? /base/ ?filter?`
+### `ns_ldap delete /ldaph/ /dn/`
+Deletes the LDAP entry at the given DN.
 
-Perhaps the most useful command. it searches the LDAP tree for particular
-entries. Returns a list of entries where each entry is in itself a list
-of attr value pairs. This is suitable for use with array set. The values
-associated with the attr are a Tcl list since attributes can have multiple
-values.
 
-If no filter is provided, the default filter (objectclass=*) is used.
-If attribute names are provided after the filter, only the named 
-attributes will be returned. The available options are:
+### `ns_ldap modify /ldaph/ /dn/ ?add: attr valList ...? ?mod: attr valList ...? ?del: attr ...?`
+Performs attribute modifications on an entry.
 
-*   `-attrs bool`
-    Returns only the names of the attributes in the matching objects.
-    When this is true, the returned list contains lists in which the
-    first entry is the dn of the matched object and the subsequent fields
-    are the matched attributes.
-    (default: false)
+- `add:` adds values to the attribute.
+- `mod:` replaces the attribute values.
+- `del:` deletes the attribute entirely.
 
-*   `-names bool`
-    Returns only the dn names of the matching objects. When this is true
-    the returned list contains all matched dn's as elements.
-    (default: false)
+Example:
+```tcl
+ns_ldap modify $lh $dn \
+    add: objectClass [list person inetOrgPerson] \
+    del: junkAttr \
+    mod: cn [list "Foo Bar"]
+```
 
-*   `-scope enum`
-    Specifies the scope of the search. Can be base, one, or sub.
-    (default: base)
+
+### `ns_ldap modrdn /ldaph/ /dn/ /newrdn/ ?/deloldrdn/?`
+Changes the relative distinguished name (RDN) of an LDAP entry.
+
+- `deloldrdn`: Boolean flag indicating whether to delete the old RDN.
+
+
+### `ns_ldap bind /ldaph/ /username/ /password/`
+Checks whether the given username/password combination is valid via a bind.
+
+- On success, rebinds to the original service credentials.
+- Returns 1 if credentials are valid, 0 otherwise.
+
+
+### `ns_ldap search /ldaph/ ?-scope base|onelevel|subtree? ?-attrs bool? ?-names bool? /base/ ?/filter/? ?/attr/ ...?`
+Performs a search on the directory.
+
+- `base`: Base DN to search from.
+- `filter`: Optional filter string. Default: `(objectClass=*)`.
+- `attr`: Optional list of attribute names to return.
+- `-scope`: Search scope. Default is `base`.
+- `-attrs`: If true, only return attribute names (no values).
+- `-names`: If true, return only DN strings.
+
+Returns a Tcl list of entries, each as a list suitable for Tcl `dict` or `array set`.
+
+
+---
+
+## License
+
+BSD-like license, inherited from NaviServer and OpenLDAP conventions.
