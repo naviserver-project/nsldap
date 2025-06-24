@@ -119,7 +119,7 @@ authenticator in your NaviServer configuration file.
 
 
 ```tcl
-ns_section ns/server/default/tcl {
+ns_section ns/server/${server}/tcl {
     ns_param initcmds {
         namespace eval ::nsldap {}
         proc ::nsldap::authuser {user passwd} {
