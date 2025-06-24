@@ -22,11 +22,12 @@
 
 #define NSLDAP_VERSION  "1.0d2"
 
-#define CONFIG_USER     "user"          /* LDAP default bind DN */
-#define CONFIG_PASS     "password"      /* DN password */
+#define CONFIG_USER     "user"          /* LDAP admin DN for bind operation*/
+#define CONFIG_PASS     "password"      /* admin DN password */
 #define CONFIG_HOST     "host"          /* LDAP server */
 #define CONFIG_CONNS    "connections"   /* Number of LDAP connections. */
 #define CONFIG_VERBOSE  "verbose"       /* Log LDAP queries and errors */
+#define CONFIG_BASEDN   "basedn"        /* Default base DN for search operations */
 
 /*
  * Forward compatibility, in case a new version of the module is compiled
@@ -57,7 +58,7 @@ typedef struct Pool {
     const char    *schema;
     const char    *host;
     const char    *uri;
-    const char    *dn;
+    const char    *basedn;
     int            port;
     const char    *user;
     const char    *pass;
@@ -78,7 +79,7 @@ typedef struct Handle {
     const char   *schema;
     const char   *host;
     const char   *uri;
-    const char   *dn;
+    const char   *basedn;
     int           port;
     const char   *user;
     const char   *password;
@@ -366,7 +367,7 @@ LDAPCreatePool(const char *pool, const char *path)
     portString = Ns_ConfigGetValue(path, "port");
     poolPtr->user = Ns_ConfigGetValue(path, CONFIG_USER);
     poolPtr->pass = Ns_ConfigGetValue(path, CONFIG_PASS);
-    poolPtr->dn = NULL;
+    poolPtr->basedn = Ns_ConfigGetValue(path, CONFIG_BASEDN);
     if (poolPtr->uri != NULL) {
         if (poolPtr->schema != NULL || poolPtr->host != NULL || portString != NULL) {
             Ns_Log(Warning, "nsldap: when LDAP URI is used, configuration values of"
@@ -383,7 +384,22 @@ LDAPCreatePool(const char *pool, const char *path)
             }
             poolPtr->schema = ns_strdup(parsedURI->lud_scheme);
 #ifdef OPENLDAP_VERSION
-            poolPtr->dn     = ns_strdup(parsedURI->lud_dn);
+            poolPtr->basedn = ns_strdup(parsedURI->lud_dn);
+#else
+            {
+                Ns_URL uri;
+                const char *errorMsg;
+                char       *uriCopy = ns_strdup(poolPtr->uri);
+                (void) Ns_ParseUrl(uriCopy, NS_FALSE, &uri, &errorMsg);
+                if (uri.tail != NULL && *uri.tail != '\0') {
+                    if (poolPtr->basedn != NULL) {
+                        Ns_Log(Warning, "nsldap: override config value from baseDN with value from URI");
+                    }
+                    poolPtr->basedn = ns_strdup(uri.tail);
+                    Ns_Log(Notice, "nsldap: use baseDN from URI '%s'", poolPtr->basedn);
+                }
+                ns_free(uriCopy);
+            }
 #endif
             poolPtr->host   = ns_strdup(parsedURI->lud_host);
             poolPtr->port   = parsedURI->lud_port;
@@ -444,7 +460,7 @@ LDAPCreatePool(const char *pool, const char *path)
          * no longer supported.
          */
         handlePtr->uri = poolPtr->uri;
-        handlePtr->dn = poolPtr->dn;
+        handlePtr->basedn = poolPtr->basedn;
         handlePtr->schema = poolPtr->schema;
         handlePtr->host = poolPtr->host;
         handlePtr->port = poolPtr->port;
@@ -648,7 +664,7 @@ LDAPConnect(Handle *handlePtr)
     Tcl_DString   ds;
     struct berval cred;
 
-    if (handlePtr->uri != NULL) {
+    if (0 && handlePtr->uri != NULL) {
         Ns_Log(Debug, "nsldap : try to CONNECT new style: <%s>", handlePtr->uri);
         rc = ldap_initialize(&handlePtr->ldaph, handlePtr->uri);
     } else {
@@ -803,7 +819,7 @@ LDAPPoolTimedGetMultipleHandles(Handle **handles, const char *pool,
     }
 
     /*
-     * Wait until this thread can be the exclusive thread aquireing
+     * Wait until this thread can be the exclusive thread acquireing
      * handles and then wait until all requested handles are available,
      * watching for timeout in either of these waits.
      */
@@ -1641,13 +1657,13 @@ LdapBindCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv,
     ldap_sasl_bind_s(handlePtr->ldaph, handlePtr->user, LDAP_SASL_SIMPLE, &bercred,
                      NULL, NULL, NULL);
 
-    if (err != LDAP_SUCCESS) {
+    if (err != LDAP_SUCCESS && err != LDAP_INVALID_CREDENTIALS) {
         Ns_Log(Error, "nsldap: could not bind for %s : %s", dn, ldap_err2string(err));
-        Tcl_SetObjResult(interp, Tcl_NewIntObj(0));
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(ldap_err2string(err), TCL_INDEX_NONE));
         return TCL_ERROR;
     }
 
-    Tcl_SetObjResult(interp, Tcl_NewIntObj(1));
+    Tcl_SetObjResult(interp, Tcl_NewIntObj(err == LDAP_SUCCESS));
     return TCL_OK;
 }
 
@@ -2070,7 +2086,11 @@ LdapSearchCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv,
         attrs[attrc] = NULL;
     }
 
-    rc = ldap_search_ext(handlePtr->ldaph, base, scope, filter,
+    Ns_Log(Debug, "nsldap search: base '%s' ", *base == '\0' ? handlePtr->basedn : base);
+
+    rc = ldap_search_ext(handlePtr->ldaph,
+                         *base == '\0' ? handlePtr->basedn : base,
+                         scope, filter,
                          (char **)attrs, attrsonly,
                          NULL, NULL, NULL,
                          LDAP_NO_LIMIT, &msgid);
@@ -2180,6 +2200,7 @@ LdapSearchCmd(Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const *objv,
  */
 typedef enum {
     CMD_ADD,
+    CMD_BASEDN,
     CMD_BIND,
     CMD_BOUNCEPOOL,
     CMD_COMPARE,
@@ -2201,6 +2222,7 @@ typedef enum {
 
 static const Ns_ObjvTable ldapCmdTable[] = {
     {"add",           CMD_ADD},
+    {"basedn",        CMD_BASEDN},
     {"bind",          CMD_BIND},
     {"bouncepool",    CMD_BOUNCEPOOL},
     {"compare",       CMD_COMPARE},
@@ -2286,6 +2308,7 @@ LDAPObjCmd(ClientData ctx, Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const* 
     }
 
     case CMD_ADD:
+    case CMD_BASEDN:
     case CMD_BIND:
     case CMD_COMPARE:
     case CMD_CONNECTED:
@@ -2335,6 +2358,7 @@ LDAPObjCmd(ClientData ctx, Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const* 
         return TCL_OK;
 
 
+    case CMD_BASEDN:
     case CMD_CONNECTED:
     case CMD_DISCONNECT:
     case CMD_HOST:
@@ -2355,7 +2379,9 @@ LDAPObjCmd(ClientData ctx, Tcl_Interp *interp, TCL_SIZE_T objc, Tcl_Obj *const* 
                 return TCL_ERROR;
             }
         }
-        if (cmd == CMD_CONNECTED) {
+        if (cmd == CMD_BASEDN) {
+            Tcl_SetObjResult(interp, Tcl_NewStringObj(handlePtr->basedn, TCL_INDEX_NONE));
+        } else if (cmd == CMD_CONNECTED) {
             Tcl_SetObjResult(interp, Tcl_NewIntObj(handlePtr->connected));
         } else if (cmd == CMD_DISCONNECT) {
             LDAPDisconnect(handlePtr);
