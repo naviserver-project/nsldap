@@ -320,4 +320,4 @@ Returns a Tcl list of entries, each as a list suitable for Tcl `dict` or `array 
 
 ## License
 
-BSD-like license, inherited from NaviServer and OpenLDAP conventions.
+Mozilla Public License, v. 2.0. If a copy of the MPL can be obtained from https://mozilla.org/MPL/2.0/.
