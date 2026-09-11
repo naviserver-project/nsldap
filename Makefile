@@ -15,7 +15,10 @@
 #NSHOME   =  /home/user/cvs/aolserver
 #NSHOME   =  ../aolserver
 
-NAVISERVER = /usr/local/ns
+ifndef NAVISERVER
+	NAVISERVER = /usr/local/ns
+endif
+
 #
 # Module name
 #
